@@ -3,10 +3,10 @@
 - id: ScrapeAll
   name: ScrapeAll
   metadata:
-    description: Runs every non-URL scene scraper against a scene and logs what each
-      returned. Read-only - writes nothing.
-  version: 2-0f6402e
-  date: '2026-08-23 13:39:26'
+    description: Probes every non-URL scene source and returns one merged result.
+      Configured by the ScrapeAllSettings plugin.
+  version: 3-e1d8d54
+  date: '2026-08-23 13:55:35'
   path: ScrapeAll.zip
-  sha256: c4c97219259d8a64f2aa9b81a300572706b09ef2597c2dbcf9f362cffa96799d
+  sha256: 63af848bc49e69018731ccc413cb3c7ba08f2e75e4a2f7e0e73391613082be11
   requires: []

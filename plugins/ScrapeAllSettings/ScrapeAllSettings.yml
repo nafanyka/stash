@@ -1,0 +1,32 @@
+name: ScrapeAll Settings
+description: >-
+  Settings the ScrapeAll scraper reads before it writes anything. This plugin has
+  no scraping logic of its own; it exists because a scraper has nowhere to keep
+  configuration a user can edit.
+version: 1.0
+url: https://github.com/nafanyka/stash
+
+exec:
+  - python
+  - "{pluginDir}/ScrapeAllSettings.py"
+interface: raw
+
+tasks:
+  - name: Show effective settings
+    description: Parse the settings below and log exactly what ScrapeAll will do with them.
+    defaultArgs:
+      mode: show
+
+settings:
+  allowedFields:
+    displayName: Allowed fields
+    description: >-
+      Comma-separated whitelist of the scene fields ScrapeAll may fill. Leave
+      empty to allow all of them. Available: title, code, date, director, details, urls, studio, performers, tags, groups
+    type: STRING
+  ignoredScrapers:
+    displayName: Ignored scrapers
+    description: >-
+      Comma-separated scrapers to skip, matched case-insensitively against a
+      scraper's name or id and against a stash-box's name or endpoint.
+    type: STRING

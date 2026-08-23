@@ -8,7 +8,8 @@ published as an installable Stash **source** via GitHub Pages.
 ```
 plugins/<Name>/<Name>.yml     plugin manifest (+ .py / .js / README.md next to it)
 scrapers/<Name>/<Name>.yml    scraper manifest (+ .py next to it)
-  scrapers/ScrapeAll/         lists every loaded scraper, grouped by category
+  scrapers/ScrapeAll/         probes every non-URL scene source, merges the hits
+  plugins/ScrapeAllSettings/  the settings ScrapeAll obeys (no scraping of its own)
 common/python/stash_common/   shared helpers, bundled into packages that import them
 dist/plugins/index.yml        generated source index — the URL Stash subscribes to
 dist/scrapers/index.yml       generated source index

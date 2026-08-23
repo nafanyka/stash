@@ -26,12 +26,18 @@ def call(
     variables: dict | None = None,
     api_key: str | None = None,
     timeout: int = TIMEOUT,
+    cookie: str | None = None,
 ) -> dict:
-    """Run `query` and return the `data` object, or raise GraphQLError."""
+    """Run `query` and return the `data` object, or raise GraphQLError.
+
+    `cookie` carries a plugin's session cookie; scrapers use `api_key` instead.
+    """
     payload = json.dumps({"query": query, "variables": variables or {}}).encode("utf-8")
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if api_key:
         headers["ApiKey"] = api_key
+    if cookie:
+        headers["Cookie"] = cookie
 
     request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
     try:
@@ -65,6 +71,7 @@ def try_call(
     variables: dict | None = None,
     api_key: str | None = None,
     timeout: int = TIMEOUT,
+    cookie: str | None = None,
 ):
     """Same as `call` but returns None and logs instead of raising.
 
@@ -72,7 +79,7 @@ def try_call(
     version, where a failure is expected rather than exceptional.
     """
     try:
-        return call(url, query, variables, api_key, timeout)
+        return call(url, query, variables, api_key, timeout, cookie)
     except GraphQLError as exc:
         log.debug(f"graphql probe failed: {exc}")
         return None

@@ -58,3 +58,24 @@ def _normalise(url: str) -> str:
     if not url:
         return DEFAULT_URL
     return url if url.endswith("/graphql") else url + "/graphql"
+
+
+def from_plugin_input(payload: dict) -> tuple[str, str | None, str | None]:
+    """Connection details for a plugin, from the JSON Stash puts on its stdin.
+
+    Plugins - unlike scrapers - are handed `server_connection`, which includes a
+    session cookie, so they need no config.ini. Returns (url, api_key, cookie).
+    """
+    conn = (payload or {}).get("server_connection") or {}
+    scheme = str(conn.get("Scheme") or "http").lower()
+    host = str(conn.get("Host") or "").strip()
+    if host in ("", "0.0.0.0", "::", "[::]"):
+        host = "localhost"  # the listen address is not necessarily reachable as-is
+    port = conn.get("Port") or 9999
+
+    jar = conn.get("SessionCookie") or {}
+    cookie = None
+    if jar.get("Name") and jar.get("Value"):
+        cookie = str(jar["Name"]) + "=" + str(jar["Value"])
+
+    return f"{scheme}://{host}:{port}/graphql", os.environ.get("STASH_API_KEY"), cookie
