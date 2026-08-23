@@ -162,10 +162,14 @@ def flags_of(supported) -> str:
     return "".join(char if name in have else "-" for name, char in SCRAPE_FLAGS)
 
 
+def host_of(raw: str) -> str:
+    return re.sub(r"^\w+://", "", str(raw or "").strip()).split("/")[0]
+
+
 def domains_of(urls, limit: int = 4) -> str:
     hosts: list[str] = []
     for raw in urls or []:
-        host = re.sub(r"^\w+://", "", (raw or "").strip()).split("/")[0]
+        host = host_of(raw)
         if host and host not in hosts:
             hosts.append(host)
     if not hosts:
@@ -246,6 +250,15 @@ SCENE_URL_TIERS = [
 ]
 
 STASH_BOXES = "query { configuration { general { stashBoxes { endpoint name } } } }"
+
+# Only the bookkeeping tags are needed, so filter server-side; the unfiltered
+# form is the fallback for a version whose tag filter differs.
+TAG_LOOKUP_TIERS = [
+    ("query($v: String!) { findTags(tag_filter: {name: {value: $v, modifier: INCLUDES}},"
+     " filter: {per_page: -1}) { tags { id name } } }", True),
+    ("query { findTags(filter: {per_page: -1}) { tags { id name } } }", False),
+]
+TAG_CREATE = "mutation($name: String!) { tagCreate(input: {name: $name}) { id name } }"
 
 
 class Schema:
@@ -342,6 +355,67 @@ def stash_boxes(url: str, api_key: str | None) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
+# scrape tags
+
+
+def existing_scrape_tags(url: str, api_key: str | None) -> dict | None:
+    """Lowercased tag name -> id for every existing scrape tag, or None on failure.
+
+    None means the question could not be asked, which is not the same as "there
+    are none" - creating tags blind would risk duplicates.
+    """
+    for query, needs_var in TAG_LOOKUP_TIERS:
+        variables = {"v": settings.SCRAPE_TAG_PREFIX} if needs_var else None
+        data = graphql.try_call(url, query, variables, api_key=api_key)
+        tags = ((data or {}).get("findTags") or {}).get("tags")
+        if tags is not None:
+            return {(tag.get("name") or "").lower(): tag.get("id") for tag in tags}
+    return None
+
+
+def sync_scrape_tags(url: str, api_key: str | None, probed: dict) -> list[dict]:
+    """Make sure a tag exists for every probed source; return those to attach.
+
+    `probed` maps a source name to whether it identified the scene. A source that
+    found nothing still gets its tag created - just not attached - so the tag list
+    doubles as the roster of what is installed and what is worth ignoring.
+    """
+    if not probed:
+        return []
+
+    known = existing_scrape_tags(url, api_key)
+    if known is None:
+        log.error("TAGS  could not list existing tags - no scrape tag was created")
+        return []
+
+    attach, created, failed = [], 0, 0
+    for name, hit in probed.items():
+        tag_name = settings.scrape_tag(name)
+        tag_id = known.get(tag_name.lower())
+
+        if tag_id is None:
+            data = graphql.try_call(url, TAG_CREATE, {"name": tag_name}, api_key=api_key)
+            tag_id = ((data or {}).get("tagCreate") or {}).get("id")
+            if tag_id:
+                created += 1
+                known[tag_name.lower()] = tag_id
+                log.info("TAGS  created " + tag_name
+                         + (" (attaching)" if hit else " (not attached - did not identify the scene)"))
+            else:
+                failed += 1
+                log.error("TAGS  could not create " + tag_name)
+
+        if hit:
+            # Without an id Stash matches by name and offers to create on apply.
+            attach.append({"name": tag_name, "stored_id": tag_id} if tag_id else {"name": tag_name})
+
+    log.info("TAGS  " + str(len(probed)) + " source(s): " + str(created) + " tag(s) created, "
+             + str(len(probed) - created - failed) + " already present, "
+             + str(len(attach)) + " to attach")
+    return attach
+
+
+# --------------------------------------------------------------------------- #
 # which sources to probe
 
 
@@ -383,7 +457,9 @@ def build_sources(scrapers, boxes, schema: Schema, scene_id: str, term: str | No
     box_key = "stash_box_endpoint" if "stash_box_endpoint" in schema.source_input else "stash_box_index"
     for index, box in enumerate(boxes):
         endpoint = box.get("endpoint") or ""
-        name = box.get("name") or endpoint or "stash-box " + str(index)
+        # An unnamed box would otherwise carry a whole endpoint URL into its
+        # scrape tag; its host reads far better in a tag list.
+        name = (box.get("name") or "").strip() or host_of(endpoint) or "stash-box " + str(index)
         if opts.ignores(name, endpoint):
             log.info("SKIP  " + name + " - ignored by the ScrapeAllSettings plugin")
             continue
@@ -444,6 +520,10 @@ class Merged:
         self.url_seen.add(key)
         self.urls.append(str(raw).strip())
         return True
+
+    def add_tag(self, tag: dict) -> None:
+        """Attach one tag that did not come from a scraped scene."""
+        self.entities["tags"].setdefault(entity_key(tag), dict(tag))
 
     def add(self, mode: str, name: str, scene: dict, group_key: str | None) -> None:
         self.provenance.append(MODE_LETTERS.get(mode, "?") + ": " + name)
@@ -563,11 +643,20 @@ def elapsed(started: float) -> str:
     return format(time.monotonic() - started, ".1f") + "s"
 
 
-def probe(url, api_key, sources, schema: Schema, merged: Merged) -> None:
+def probe(url, api_key, sources, schema: Schema, merged: Merged) -> dict:
+    """Returns {source name: did it identify the scene}, in probe order.
+
+    Every source is registered up front, so a source the budget never reached
+    still appears - the scrape-tag roster is about what is installed, not about
+    what happened to run.
+    """
     query = scrape_query(schema.selection())
     deadline = time.monotonic() + TOTAL_BUDGET
     total = len(sources)
     hits = misses = failures = 0
+    probed = {}
+    for source in sources:
+        probed.setdefault(source["name"], False)
 
     log.info("")
     header = "== PROBE: " + str(total) + " non-URL source(s) "
@@ -609,11 +698,13 @@ def probe(url, api_key, sources, schema: Schema, merged: Merged) -> None:
             log.info("        - ... " + str(len(results) - MAX_RESULTS_LOGGED) + " more not listed")
 
         merged.add(source["mode"], source["name"], results[0], schema.group_key)
+        probed[source["name"]] = True
 
     log.info("")
     log.info("-" * WIDTH)
     log.info("PROBE DONE: found " + str(hits) + ", missed " + str(misses)
              + ", failed " + str(failures) + " of " + str(total))
+    return probed
 
 
 def report_merge(merged: Merged, payload: dict, opts) -> None:
@@ -706,7 +797,17 @@ def run(mode: str, fragment: dict) -> dict | None:
         return None
 
     merged = Merged(existing_urls(url, api_key, scene_id, fragment))
-    probe(url, api_key, sources, schema, merged)
+    probed = probe(url, api_key, sources, schema, merged)
+
+    if opts.create_tags:
+        log.info("")
+        attach = sync_scrape_tags(url, api_key, probed)
+        if attach and opts.permits("tags"):
+            for tag in attach:
+                merged.add_tag(tag)
+        elif attach:
+            log.info("TAGS  created but not attached - \"tags\" is not in the allowed fields")
+
     payload = merged.payload(schema, opts)
     report_merge(merged, payload, opts)
     return payload or None

@@ -5,8 +5,8 @@
   metadata:
     description: Probes every non-URL scene source and returns one merged result.
       Configured by the ScrapeAllSettings plugin.
-  version: 3-e1d8d54
-  date: '2026-08-23 13:55:35'
+  version: 4-2b705f5
+  date: '2026-08-23 14:23:39'
   path: ScrapeAll.zip
-  sha256: 63af848bc49e69018731ccc413cb3c7ba08f2e75e4a2f7e0e73391613082be11
+  sha256: 1320dc418597a20d3670e83639dcc549ff82d2680c507cbec30809a9df457ec9
   requires: []

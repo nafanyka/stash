@@ -55,7 +55,24 @@ through the server and recurse without limit.
 | `performers`, `tags`, `groups` | union of every source, de-duplicated by name. The first spelling of a name wins; a `stored_id` — the link to an entity that already exists in Stash — is adopted from whichever source supplies it. |
 | `studio` | a scene holds one studio, so the one the most sources agree on wins, ties going to the earliest. All candidates and their vote counts go to the log. |
 | `title`, `code`, `date`, `director` | first source that returned one, in probe order. |
+| scrape tags | appended to `tags` for every source that identified the scene — see below. |
 | `details` | **overwritten** with the provenance list: one line per source that identified the scene, as `<letter>: <name>`. |
+
+### Scrape tags
+
+With *Create Scrape Tags* on (the plugin's default), every probed source also gets
+a bookkeeping tag `[scrapper:<source name>]`. Sources that identified the scene
+get theirs attached to the scene; sources that found nothing, crashed, or were
+never reached get the tag created but **not** attached — so the tag list becomes
+the roster of what is installed, and what appears on scenes is what actually
+works. Tag creation is a real write that happens during the scrape, before the
+merge dialog, and is not undone by pressing Cancel.
+
+```
+TAGS  created [scrapper:NameSite] (attaching)
+TAGS  created [scrapper:BrokenSite] (not attached - did not identify the scene)
+TAGS  7 source(s): 6 tag(s) created, 1 already present, 5 to attach
+```
 
 `details` example:
 
@@ -110,7 +127,8 @@ MAX_RESULTS_LOGGED = 10
 ## Where the data comes from
 
 1. **GraphQL** — `listScrapers`, `configuration.general.stashBoxes`,
-   `configuration.plugins` and the scene's current URLs, against the local server.
+   `configuration.plugins`, the scene's current URLs and the existing scrape tags,
+   against the local server. `tagCreate` is the only mutation it ever issues.
 2. **Disk scan** (fallback) — sibling folders in the scrapers directory, parsed
    with a regex. Inventory only: with no server reachable there is nothing to
    probe and nothing to merge, and the log says so.

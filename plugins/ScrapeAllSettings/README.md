@@ -39,6 +39,34 @@ SKIP  NameSite - ignored by the ScrapeAllSettings plugin
 
 Semicolons and newlines work as separators too, in both fields.
 
+### Create Scrape Tags
+
+**On by default.** Keeps one bookkeeping tag per probed source, named
+`[scrapper:<source name>]` — the brackets are just a naming convention, so the
+tags sort and filter together in the UI.
+
+| Source | Tag | Attached to the scene |
+| --- | --- | --- |
+| identified the scene | created if missing | yes |
+| found nothing, crashed, or was never reached | created if missing | no |
+
+That asymmetry is the point: after a few scrapes the tag list is the roster of
+every non-URL source installed, and the ones actually appearing on scenes are the
+ones earning their runtime. The rest are candidates for *Ignored scrapers*.
+
+Two things worth knowing:
+
+- **Tag creation is immediate and real.** Unlike the scraped fields, it is not
+  part of the merge dialog — the tags exist as soon as the scrape runs, even if
+  you press Cancel. Turn the flag off if that is not wanted.
+- It is governed by **this** flag, not by *Allowed fields*. With `tags` left out
+  of the whitelist the tags are still created, just not attached, and the log says
+  so. Only turning this flag off stops the creation.
+
+Stash plugin settings cannot declare a default, so an untouched boolean arrives
+absent rather than false; the "on by default" lives in
+`stash_common/settings.py` (`CREATE_SCRAPE_TAGS_DEFAULT`).
+
 ## Task: Show effective settings
 
 Settings → Tasks → Plugin Tasks → **Show effective settings**. Parses the values
@@ -50,6 +78,7 @@ ScrapeAllSettings - effective configuration for the ScrapeAll scraper
   raw values     : {"allowedFields": "urls, details, performers", "ignoredScrapers": "NameSite"}
   allowed fields : details, performers, urls
   ignored sources: namesite
+  scrape tags    : on - [scrapper:<source>] per probed source
 
 How each allowed field is combined across sources:
   x title      first source that returned one

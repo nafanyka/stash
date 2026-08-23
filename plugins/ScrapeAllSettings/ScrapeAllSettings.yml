@@ -3,7 +3,7 @@ description: >-
   Settings the ScrapeAll scraper reads before it writes anything. This plugin has
   no scraping logic of its own; it exists because a scraper has nowhere to keep
   configuration a user can edit.
-version: 1.0
+version: 1.1
 url: https://github.com/nafanyka/stash
 
 exec:
@@ -30,3 +30,11 @@ settings:
       Comma-separated scrapers to skip, matched case-insensitively against a
       scraper's name or id and against a stash-box's name or endpoint.
     type: STRING
+  createScrapeTags:
+    displayName: Create Scrape Tags
+    description: >-
+      ON by default. Keep a bookkeeping tag "[scrapper:<source name>]" for every source
+      ScrapeAll probes. A source that identified the scene gets its tag attached;
+      one that found nothing still gets the tag created but not attached, so the
+      tag list shows you what works and what is worth adding to Ignored scrapers.
+    type: BOOLEAN

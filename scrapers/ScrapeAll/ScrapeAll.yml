@@ -1,7 +1,7 @@
 # Lines starting with "#" are read by the build to fill the source index.
 # Stash ignores them; a scraper config has no version/description field of its
 # own and rejects unknown keys, so they cannot live in the config proper.
-# version: 3
+# version: 4
 # description: Probes every non-URL scene source and returns one merged result. Configured by the ScrapeAllSettings plugin.
 
 name: ScrapeAll
