@@ -47,12 +47,33 @@ name: MyScraper
 
 ## Installing in Stash
 
-Settings → Plugins → Available Plugins → **Add Source**:
+In Stash: Settings → Metadata Providers → Available Scrapers (or Plugins) →
+**Add Source**, then paste an index URL. Two routes, pick one:
 
-- Plugins: `https://<user>.github.io/<repo>/plugins/index.yml`
-- Scrapers: `https://<user>.github.io/<repo>/scrapers/index.yml`
+**Straight from the repo** (no GitHub configuration needed):
 
-Enable GitHub Pages for the repo once (Settings → Pages → Source: **GitHub Actions**).
+```
+https://raw.githubusercontent.com/nafanyka/stash/refs/heads/main/dist/scrapers/index.yml
+https://raw.githubusercontent.com/nafanyka/stash/refs/heads/main/dist/plugins/index.yml
+```
+
+`dist/` — both the indexes **and** the `.zip` packages — is committed for exactly
+this reason: Stash resolves each entry's `path` relative to the index URL, so the
+zip has to be a real file next to it in the branch. Run the build before every
+commit that touches a plugin or scraper, or the published zip goes stale.
+
+**Via GitHub Pages** (CI builds, nothing binary to commit):
+
+```
+https://<user>.github.io/<repo>/scrapers/index.yml
+https://<user>.github.io/<repo>/plugins/index.yml
+```
+
+Needs Settings → Pages → Source: **GitHub Actions** enabled once; `publish.yml`
+then rebuilds and deploys `dist/` on every push to `main`.
+
+The two are independent — each index is served next to its own zips, so neither
+can hand Stash a package that mismatches its `sha256`.
 
 ## Building locally
 
@@ -61,6 +82,7 @@ pip install pyyaml
 python .github/workflows/build_index.py
 ```
 
-Writes `dist/<kind>/<Name>.zip` and regenerates both `index.yml` files. The zips
-are gitignored; the indexes are committed so the Pages artifact is always
-reproducible.
+Writes `dist/<kind>/<Name>.zip` and regenerates both `index.yml` files. Commit
+the result. Each entry's `version` is `<manifest version>-<short sha of the last
+commit touching that folder>`, so a rebuild before committing shows the *previous*
+sha — harmless for Stash's update check, which only compares strings.
