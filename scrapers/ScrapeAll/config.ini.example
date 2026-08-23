@@ -1,0 +1,7 @@
+; Copy to config.ini next to ScrapeAll.py and fill in.
+; Only needed if Stash listens somewhere other than localhost:9999 or has
+; authentication enabled - without it ScrapeAll falls back to reading the
+; scrapers directory off disk.
+[stash]
+url = http://localhost:9999/graphql
+api_key =

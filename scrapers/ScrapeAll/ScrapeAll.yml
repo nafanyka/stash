@@ -1,0 +1,18 @@
+# Lines starting with "#" are read by the build to fill the source index.
+# Stash ignores them; a scraper config has no version/description field of its
+# own and rejects unknown keys, so they cannot live in the config proper.
+# version: 1
+# description: Logs every scraper Stash has loaded, grouped by category. Read-only - returns no data and changes nothing.
+
+name: ScrapeAll
+
+# sceneByFragment is what puts a scraper in two places at once:
+#   * the scene edit panel, under "Scrape with..."
+#   * Settings -> Tasks -> Identify, as a selectable source
+# Both call this same entry point with the scene fragment on stdin.
+sceneByFragment:
+  action: script
+  script:
+    - python
+    - ScrapeAll.py
+    - scene-fragment
