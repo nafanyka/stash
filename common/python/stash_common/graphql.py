@@ -20,7 +20,13 @@ class GraphQLError(RuntimeError):
     """Transport failure, HTTP error, or a non-empty `errors` array."""
 
 
-def call(url: str, query: str, variables: dict | None = None, api_key: str | None = None) -> dict:
+def call(
+    url: str,
+    query: str,
+    variables: dict | None = None,
+    api_key: str | None = None,
+    timeout: int = TIMEOUT,
+) -> dict:
     """Run `query` and return the `data` object, or raise GraphQLError."""
     payload = json.dumps({"query": query, "variables": variables or {}}).encode("utf-8")
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
@@ -29,7 +35,7 @@ def call(url: str, query: str, variables: dict | None = None, api_key: str | Non
 
     request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             body = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = ""
@@ -53,14 +59,20 @@ def call(url: str, query: str, variables: dict | None = None, api_key: str | Non
     return data
 
 
-def try_call(url: str, query: str, variables: dict | None = None, api_key: str | None = None):
+def try_call(
+    url: str,
+    query: str,
+    variables: dict | None = None,
+    api_key: str | None = None,
+    timeout: int = TIMEOUT,
+):
     """Same as `call` but returns None and logs instead of raising.
 
     Handy for probing a query shape that may not exist on the running Stash
     version, where a failure is expected rather than exceptional.
     """
     try:
-        return call(url, query, variables, api_key)
+        return call(url, query, variables, api_key, timeout)
     except GraphQLError as exc:
         log.debug(f"graphql probe failed: {exc}")
         return None

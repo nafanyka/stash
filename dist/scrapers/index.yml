@@ -3,10 +3,10 @@
 - id: ScrapeAll
   name: ScrapeAll
   metadata:
-    description: Logs every scraper Stash has loaded, grouped by category. Read-only
-      - returns no data and changes nothing.
-  version: 1-0f6402e
+    description: Runs every non-URL scene scraper against a scene and logs what each
+      returned. Read-only - writes nothing.
+  version: 2-0f6402e
   date: '2026-08-23 13:39:26'
   path: ScrapeAll.zip
-  sha256: c77580ce6f238104b9e5d4d6027be25b82072b9857dc064333632e7ed6bbb942
+  sha256: c4c97219259d8a64f2aa9b81a300572706b09ef2597c2dbcf9f362cffa96799d
   requires: []
