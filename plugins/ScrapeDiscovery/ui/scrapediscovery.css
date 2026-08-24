@@ -547,3 +547,37 @@
     flex-basis: auto;
   }
 }
+
+/* ------------------------------------------------------------------ consensus */
+
+/* The one answer worth trusting, when there is one. Given its own box because it is
+   the question a user came with; the raw answers below are the evidence for it. */
+.sd-consensus {
+  border: 1px solid rgba(40, 167, 69, 0.35);
+  border-left-width: 3px;
+  border-radius: 0.3rem;
+  padding: 0.6rem 0.8rem 0.2rem;
+  margin: 1rem 0;
+}
+
+.sd-consensus h3 {
+  margin-top: 0.25rem;
+}
+
+.sd-consensus-none {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.sd-consensus-why {
+  margin-bottom: 0.25rem;
+}
+
+.sd-consensus-table {
+  margin-top: 0.6rem;
+}
+
+.sd-field-name {
+  font-family: monospace;
+  font-size: 0.8rem;
+  opacity: 0.8;
+}

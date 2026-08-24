@@ -107,3 +107,57 @@ class TestUI:
             source = handle.read()
         assert 'var BASE = "/scrape-discovery"' in source
         assert 'BASE = "/plugin' not in source
+
+
+SCRAPER_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.dirname(PLUGIN_DIR)), "scrapers",
+                 "ScrapeDiscovery"))
+SCRAPER_MANIFEST = os.path.join(SCRAPER_DIR, "ScrapeDiscovery.yml")
+
+
+def scraper_manifest():
+    with open(SCRAPER_MANIFEST, encoding="utf-8") as handle:
+        return yaml.safe_load(handle)
+
+
+class TestScraperShim:
+    def test_it_is_registered_as_a_scene_fragment_scraper(self):
+        # sceneByFragment is what puts it in "Scrape with..." and in Identify.
+        config = scraper_manifest()
+        assert config["name"] == "ScrapeDiscovery"
+        assert config["sceneByFragment"]["action"] == "script"
+        assert config["sceneByFragment"]["script"][-1] == "scene-fragment"
+
+    def test_its_id_is_the_one_the_recursion_guard_blocks(self):
+        # Stash derives a scraper's id from its yml filename, and that id is what
+        # NEVER_INVOKE has to name - a rename here without one there re-opens the loop.
+        stem = os.path.splitext(os.path.basename(SCRAPER_MANIFEST))[0]
+        assert stem.lower() in S.NEVER_INVOKE
+
+    def test_the_index_metadata_is_in_comments_stash_will_ignore(self):
+        # A scraper config has no version/description field and Stash rejects unknown
+        # keys, so the build reads them from comments instead.
+        with open(SCRAPER_MANIFEST, encoding="utf-8") as handle:
+            text = handle.read()
+        assert "# version:" in text
+        assert "# description:" in text
+        config = scraper_manifest()
+        assert "version" not in config
+        assert "description" not in config
+
+    def test_it_holds_no_discovery_logic(self):
+        # The whole point of a shim: one engine, in the plugin. If this file starts
+        # importing the engine or opening the database, that has stopped being true.
+        with open(os.path.join(SCRAPER_DIR, "ScrapeDiscovery.py"),
+                  encoding="utf-8") as handle:
+            source = handle.read()
+        for forbidden in ("import sqlite3", "from scrapediscovery",
+                          "import scrapediscovery", "scrapeSingleScene",
+                          "scrapeSceneURL", "listScrapers"):
+            assert forbidden not in source, forbidden
+        # It asks the plugin, and that is all.
+        assert "runPluginOperation" in source
+        assert "scraper.entry" in source
+
+    def test_it_ships_a_connection_example_because_scrapers_get_no_credentials(self):
+        assert os.path.isfile(os.path.join(SCRAPER_DIR, "config.ini.example"))

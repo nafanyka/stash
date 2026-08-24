@@ -315,6 +315,19 @@ class Repo:
                 (SCAN_CANCELLED, cutoff),
             ):
                 self.refresh_scene_state(row["scene_id"])
+
+        # A scene can also claim to be scanning with no scan behind it at all, if a
+        # queued job never started - Stash may reject it, or the queue may be long. The
+        # scans table is the authority on what is running, so anything claiming
+        # otherwise is repaired here rather than left wedged, refusing new scans.
+        for row in self._all(
+            "SELECT s.scene_id FROM scene_state s WHERE s.status = ?"
+            " AND NOT EXISTS (SELECT 1 FROM scans c WHERE c.scene_id = s.scene_id"
+            "                 AND c.status = ?)",
+            (SCANNING, SCAN_RUNNING),
+        ):
+            self.refresh_scene_state(row["scene_id"])
+            swept += 1
         return swept
 
     # -- attempts ----------------------------------------------------------

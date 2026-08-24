@@ -39,6 +39,15 @@ PRIORITY_DISABLED = "disabled"
 PRIORITIES = (PRIORITY_HIGH, PRIORITY_NORMAL, PRIORITY_LOW, PRIORITY_DISABLED)
 PRIORITY_ORDER = {PRIORITY_HIGH: 0, PRIORITY_NORMAL: 1, PRIORITY_LOW: 2}
 
+# ScrapeDiscovery's own scraper shim, which must never be part of a scan.
+#
+# Not merely a default: the shim's job is to start a discovery job, so a scan that
+# invoked it would start a scan, which would invoke it again. Stash gives a scraper no
+# way to know it is being called from inside a scan - the nested run is a fresh process
+# spawned by the server - so the only reliable guard is here, and it cannot be turned
+# off by configuration. The id is the shim's yml filename.
+NEVER_INVOKE = ("scrapediscovery",)
+
 # Scrapers that are local utilities rather than metadata sources. They answer every
 # fragment scrape with something derived from the file we already have, which is not
 # discovery, so they are off the default work list. Deep Scan can re-include them by
@@ -319,6 +328,9 @@ class Config:
         return value if value in PRIORITIES else PRIORITY_NORMAL
 
     def is_enabled(self, scraper_id: str, scraper_name: str = "") -> bool:
+        # The recursion guard first, and not overridable: see NEVER_INVOKE.
+        if (scraper_id or "").lower() in NEVER_INVOKE:
+            return False
         if self.priority(scraper_id) == PRIORITY_DISABLED:
             return False
         excluded = self.excluded()

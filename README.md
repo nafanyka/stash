@@ -9,6 +9,7 @@ published as an installable Stash **source** via GitHub Pages.
 plugins/<Name>/<Name>.yml     plugin manifest (+ .py / .js / README.md next to it)
 scrapers/<Name>/<Name>.yml    scraper manifest (+ .py next to it)
   scrapers/ScrapeAll/         probes every non-URL scene source, merges the hits
+  scrapers/ScrapeDiscovery/   thin entry point into the ScrapeDiscovery plugin
   plugins/ScrapeAllSettings/  the settings ScrapeAll obeys (no scraping of its own)
   plugins/ScrapeDiscovery/    runs many installed scrapers per scene, keeps every
                               answer in its own database, changes nothing

@@ -141,7 +141,22 @@ class TestScanControl:
         queued = [one for one in client.calls if one[0] == "run_plugin_task"][0]
         assert queued[1] == ops.TASK_DISCOVER_SCENES
         assert queued[2]["mode"] == "deep"
-        assert repo.scene_state(42)["status"] == R.SCANNING
+
+    def test_queuing_does_not_claim_the_scene_is_already_scanning(self, repo, scene,
+                                                                 scrapers):
+        # A queued job has not started, and writing the status optimistically wedges
+        # the scene if it never does: there is no scan row for the sweep to repair, and
+        # both the UI and the scraper shim then refuse to start another scan.
+        client = FakeClient(scene=scene, scrapers=scrapers)
+        ops.dispatch(ops.Context(client, repo, S.parse({})), "scan.start",
+                     {"scene_id": 42})
+        state = repo.scene_state(42)
+        assert state is None or state["status"] != R.SCANNING
+
+    def test_a_scene_claiming_to_scan_with_no_scan_behind_it_is_repaired(self, repo):
+        repo.set_scene_status(4242, R.SCANNING)
+        assert repo.sweep_stale_scans() >= 1
+        assert repo.scene_state(4242)["status"] == R.UNSCANNED
 
     def test_a_scan_needs_a_scene(self, repo):
         assert ops.dispatch(context(repo), "scan.start", {})["ok"] is False

@@ -1,0 +1,22 @@
+# Lines starting with "#" are read by the build to fill the source index.
+# Stash ignores them; a scraper config has no version/description field of its own and
+# rejects unknown keys, so they cannot live in the config proper.
+# version: 1
+# description: Entry point into the ScrapeDiscovery plugin. Hands back what independent sources already agree on, or queues a discovery scan. Requires the ScrapeDiscovery plugin.
+
+name: ScrapeDiscovery
+
+# sceneByFragment is what puts this in two places at once:
+#   * the scene edit panel, under "Scrape with..."
+#   * Settings -> Tasks -> Identify, as a selectable source
+#
+# Identify deserves a warning: it saves whatever a source returns, without review. This
+# shim only ever returns a scene that independent sources already agreed on - it never
+# scrapes on the spot - so it is safe there, but it will simply return nothing for any
+# scene that has not been discovered yet. The plugin's own page is where review happens.
+sceneByFragment:
+  action: script
+  script:
+    - python
+    - ScrapeDiscovery.py
+    - scene-fragment

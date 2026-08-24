@@ -18,8 +18,8 @@
       the URLs they return, and keeps every answer in its own database so you can
       review the candidates and apply the parts you want. It never writes to a scene
       on its own.
-  version: 0.1.0-0000000
-  date: '1970-01-01 00:00:00'
+  version: 0.1.0-11becf3
+  date: '2026-08-24 20:36:46'
   path: ScrapeDiscovery.zip
-  sha256: bd7b0da1a0322a29e8eaff2ec82b76467e498e9244f3a439171c01263283d87b
+  sha256: d1205b6f381bcdd06c1263a2431d778765e376e355e3617971a202b64d9c36dd
   requires: []

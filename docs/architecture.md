@@ -118,6 +118,20 @@ directory, which survives both.
 the `scans` row, which the ScrapeDiscovery page polls; the job's own progress bar gets
 the overall fraction.
 
+**L10 — `runPluginOperation` panics for a plugin that is not installed.** Verified
+against the live instance: asking for a plugin id Stash does not have answers
+`Internal system error. Error <runtime error: invalid memory address or nil pointer
+dereference>` and logs a panic. `Cache.RunPlugin` looks the plugin up and then uses it
+without a nil check, unlike `CreateTask` a few lines above, which returns a clean error.
+This matters because "installed the scraper, forgot the plugin" is the single most likely
+setup mistake, so the shim asks `plugins { id enabled }` first and reports exactly what
+is wrong — which also keeps the panic out of the user's log.
+
+Related, from the same session: `runPluginTask` for a missing plugin is accepted and
+queued, and only fails when the job reaches the front of the queue. So a queued job is
+not evidence that anything will run, which is one of the reasons a scene is no longer
+marked "scanning" at the moment a scan is queued (section 7.4).
+
 ### 1.3 Scale observed on the live instance
 
 780 scene scrapers: 756 support `URL`, 194 support `FRAGMENT`, 201 support `NAME`
@@ -151,23 +165,70 @@ wrong on three counts:
 3. **It cannot express the product.** Multiple candidates, per-field source selection,
    provenance and confidence do not fit into one `ScrapedScene` return value.
 
-So the scraper is **not** the engine. `scrapers/ScrapeDiscovery/` is a ~100-line entry
-point that speaks only GraphQL and holds no discovery logic:
+So the scraper is **not** the engine. `scrapers/ScrapeDiscovery/` is a ~150-line entry
+point that speaks only GraphQL and holds no discovery logic. It asks the plugin one
+question — `runPluginOperation(op: "scraper.entry")` — and the plugin answers with one
+of four actions:
 
-- if a completed scan with candidates already exists for the scene, return the best
-  candidate as a `ScrapedScene`, so the user gets Stash's normal merge dialog for the
-  fast path (still an explicit, user-confirmed write);
-- otherwise enqueue a discovery job with `runPluginTask` and return nothing, logging
-  "discovery queued — open ScrapeDiscovery".
+| action | what the shim does |
+| --- | --- |
+| `returned` | print the agreed scene, so Stash opens its normal merge dialog |
+| `no_consensus` | print `null`, and log how many stored answers there are to review |
+| `queued` | print `null`; a discovery job has been started |
+| `running` | print `null`; a scan for this scene is already going |
 
-It reads nothing from the SQLite database directly; it asks the plugin via
-`runPluginOperation`. One source of truth, no duplicated logic (requirement 47). It is
-optional and can be left uninstalled.
+It reads nothing from the SQLite database directly, and never scrapes: everything it
+hands over was found by a previous scan. One source of truth, no duplicated logic
+(requirement 47), and a test asserts the shim never imports the engine or calls a scrape
+operation.
 
-The primary single-scene entry point is the plugin's own UI: a **Discovery tab on the
-scene page** with `Discover`, `Deep Scan` and `View results`, plus a candidate-count
-badge. That is a real Stash-supported scene action (`ScenePage.Tabs` patch), not a
-brittle pseudo-scraper.
+### The recursion guard
+
+Registering for scene fragments means the discovery engine would otherwise find the shim
+in `listScrapers` and invoke it — and the shim's answer to being invoked is to start a
+scan. Stash gives a scraper no way to detect that it is running inside one, because the
+nested run is a fresh process spawned by the server, so the guard has to live in the
+plugin and cannot be configurable: `settings.NEVER_INVOKE` drops that scraper id before
+any work list is built, whatever the configuration says.
+
+### What the shim is allowed to return
+
+Handing an arbitrary "best" stored result to a dialog that writes to the library would be
+actively harmful. Measured on one real scene: 21 attempts reported a match, three of
+which were the scene. Among the rest, one scraper returned the server's IP address as a
+title, one a similarly-named different film, one an unrelated scene.
+
+`consensus.py` therefore answers a narrower question than the candidate correlator will —
+*is there one answer trustworthy enough to offer?* — and qualifies a group only on
+evidence a guessing scraper cannot manufacture: a stash-box fingerprint match, a scraper
+reading the site's own page for a URL already on the scene, or two independent witnesses.
+Independence is counted carefully, and this is where the live data changed the design
+twice:
+
+- **Source identity is who was asked, not what came back.** Keying on the returned URL's
+  host collapsed StashDB, theporndb, Timestamp.trade and the site's own scraper into one
+  witness, because all four reported the same link. A scraper declaring exactly one host
+  is keyed by that host (so two scrapers for one site are one witness); one covering
+  several sites, or none, is keyed by its own id; stash-boxes by endpoint.
+- **Re-reading a URL we already had is one piece of evidence, not five.** Several
+  installed scrapers answer a fragment scrape by fetching whichever URL is in the
+  fragment. Correct or not, that is the same evidence as the site's own scraper reading
+  the same page, so they share one witness key. A fingerprint match is exempt: it
+  identified the file, whatever URL it printed alongside.
+
+Two further filters come straight from observed behaviour. A result contributes no
+evidence at all if it only echoes what the fragment already contained — one scraper
+returned the given URL in the `code` field plus its own name as the studio — and a title
+on its own is never evidence, whatever it says, because it could have come from the
+filename. Field values are then voted on, with ties broken by provenance and then
+brevity: two sources offered a `code` of `211` and two offered the page's entire HTML
+title, and counting votes alone picked whichever happened to be first.
+
+The primary single-scene entry point is still the plugin's own UI: a **Discovery tab on
+the scene page** with `Discover`, `Deep Scan` and `View results`, plus a candidate-count
+badge. That is a real Stash-supported scene action (`ScenePage.Tabs` patch). The shim is
+the convenience route for people who already reach for *Scrape with…*, and it can be
+left uninstalled without losing anything.
 
 ---
 
@@ -437,6 +498,17 @@ always survive. A scan row left `RUNNING` by a killed process is swept to `CANCE
 the next run of any ScrapeDiscovery operation, detected from a heartbeat timestamp in
 `progress_json`.
 
+A scene is **not** marked as scanning when a scan is merely queued. Two reasons, both
+observed: a queued job has not started — the live instance had 1290 jobs ahead of it —
+and `runPluginTask` accepts a job even for a plugin that cannot run it (L10). Writing the
+status optimistically therefore leaves a scene permanently claiming to scan, with no scan
+row for the sweep to repair, and both the UI and the scraper shim then refuse to start
+another one. The scan sets the status when it actually begins; until then the job id is
+what the caller watches. Queuing the same scene twice is harmless anyway — the second
+scan finds everything cached and finishes in milliseconds. `sweep_stale_scans` also
+repairs any scene claiming to scan with no running scan behind it, so an older database
+in that state heals itself.
+
 ---
 
 ## 8. Repository layout
@@ -514,8 +586,11 @@ Each phase leaves the plugin installable and useful.
    `Apply selected` / `Apply candidate`, audit history.
 5. **Automation** — tag batch tasks, cache TTLs, new-scraper scan, priorities,
    concurrency, stop conditions, Normal vs Deep.
-6. **Advanced** — auto-apply, reprocessing tasks, maintenance tasks, advanced filtering,
-   graph visualisation, the optional scraper entry point.
+6. **Advanced** — auto-apply, reprocessing tasks, advanced filtering, graph
+   visualisation.
+
+The scraper shim was pulled forward out of phase 6 and is built, together with the
+conservative consensus rule it needs; see section 2.
 
 Deliberately out of scope for now but not designed out: AI-assisted ranking, image/pHash
 candidate matching, per-studio scraper routing, scheduled discovery, cross-scene

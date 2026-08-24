@@ -1013,11 +1013,128 @@
     );
   }
 
+  // What independent sources agree on, if anything. Shown above the raw answers
+  // because it is the question a user actually has, and because the honest answer is
+  // often "nothing corroborated" - which is worth saying plainly.
+  function Consensus(props) {
+    var agreed = props.consensus;
+    if (!agreed) {
+      if (!props.results) return null;
+      return h(
+        "div",
+        { className: "sd-consensus sd-consensus-none" },
+        h("h3", null, "No corroborated answer"),
+        h(
+          "p",
+          null,
+          props.results +
+            " answer(s) are stored, but none is backed by a fingerprint match, by the " +
+            "site's own page for a URL already on this scene, or by two independent " +
+            "sources. They are all listed below - decide for yourself."
+        )
+      );
+    }
+
+    var fields = agreed.fields || {};
+    return h(
+      "div",
+      { className: "sd-consensus" },
+      h("h3", null, "What independent sources agree on"),
+      h(
+        "div",
+        { className: "sd-consensus-why" },
+        h("strong", null, agreed.reason),
+        h(
+          "span",
+          { className: "sd-note" },
+          " — " + agreed.independent_sources + " independent witness(es): " +
+            (agreed.sources || []).join(", ")
+        )
+      ),
+      h(
+        "div",
+        { className: "sd-note" },
+        "from " + agreed.considered + " answer(s); " + agreed.discarded_groups +
+          " other grouping(s) rejected, " + agreed.without_evidence +
+          " contributed no evidence"
+      ),
+      h(
+        "table",
+        { className: "table sd-table sd-consensus-table" },
+        h(
+          "thead",
+          null,
+          h(
+            "tr",
+            null,
+            h("th", null, "Field"),
+            h("th", null, "Agreed value"),
+            h("th", null, "Sources"),
+            h("th", null, "Also offered")
+          )
+        ),
+        h(
+          "tbody",
+          null,
+          Object.keys(fields).map(function (name) {
+            var entry = fields[name];
+            var isList = Array.isArray(entry);
+            return h(
+              "tr",
+              { key: name },
+              h("td", { className: "sd-field-name" }, name),
+              h(
+                "td",
+                null,
+                isList
+                  ? entry
+                      .map(function (one) {
+                        return one.name;
+                      })
+                      .join(", ")
+                  : String(entry.value)
+              ),
+              h(
+                "td",
+                { className: "sd-note" },
+                isList
+                  ? entry.length + " value(s)"
+                  : entry.sources.join(", ") + " (×" + entry.agreement + ")"
+              ),
+              h(
+                "td",
+                { className: "sd-note" },
+                isList
+                  ? ""
+                  : (entry.alternatives || [])
+                      .map(function (one) {
+                        return String(one.value) + " (×" + one.agreement + ")";
+                      })
+                      .join("; ")
+              )
+            );
+          })
+        )
+      ),
+      h(
+        "p",
+        { className: "sd-note" },
+        "Nothing here has been written to the scene. Until applying is implemented, " +
+          "the ScrapeDiscovery scraper offers exactly this through Stash's own " +
+          "“Scrape with…” menu, where you confirm it."
+      )
+    );
+  }
+
   function SceneDiscovery() {
     var params = Router.useParams();
     var sceneId = params.id;
     var detail = useOp("scene.detail", { scene_id: Number(sceneId) });
-    var scanner = useScanStarter(detail.reload);
+    var agreed = useOp("consensus.get", { scene_id: Number(sceneId) });
+    var scanner = useScanStarter(function () {
+      detail.reload();
+      agreed.reload();
+    });
 
     var data = detail.data || {};
     var state = data.state || {};
@@ -1081,6 +1198,13 @@
 
       h("h3", null, "Scene as Stash has it"),
       h(SceneSummary, { scene: data.scene }),
+
+      agreed.data
+        ? h(Consensus, {
+            consensus: agreed.data.consensus,
+            results: agreed.data.results,
+          })
+        : null,
 
       candidates.length
         ? h(

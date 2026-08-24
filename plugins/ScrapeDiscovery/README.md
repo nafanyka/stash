@@ -33,9 +33,13 @@ looks like the obvious place for this. It is the wrong shape for three reasons:
    provenance and confidence do not fit into one scraped-scene return value.
 
 So the engine is a plugin, and the entry point is a **Discovery tab on the scene page**
-plus a **ScrapeDiscovery page** of its own. A thin optional scraper shim is planned for
-a later phase, which will hand the best already-discovered candidate to Stash's normal
-merge dialog — still an explicit, confirmed write.
+plus a **ScrapeDiscovery page** of its own.
+
+There *is* also a scraper, in [`scrapers/ScrapeDiscovery/`](../../scrapers/ScrapeDiscovery/):
+a ~150-line shim that appears in *Scrape with…* and asks the plugin one question. It
+never scrapes. It hands back an answer only when independent sources already agreed on
+one, otherwise it queues a scan or says how many answers are waiting for review. Install
+it if you like reaching for that menu; skip it and nothing is lost.
 
 ---
 
@@ -190,7 +194,7 @@ current form. That is the same mechanism behind **Scan with newly installed scra
 
 ## What works today
 
-**Working now (phase 1)**
+**Working now (phase 1, plus the scraper shim)**
 
 - single-scene and batch scanning, as Stash jobs with progress and cancellation
 - all six ways of invoking a scraper: URL, fragment by scene, synthetic fragment,
@@ -200,6 +204,8 @@ current form. That is the same mechanism behind **Scan with newly installed scra
 - discovered URLs recorded with the scrapers that could follow them
 - the inbox, the scene discovery view, scan history, per-scraper statistics, settings
   and diagnostics
+- a conservative consensus - what independent sources agree on - shown on the scene page
+  and offered through the scraper shim's merge dialog
 - **no writes to Stash at all**
 
 **Not yet**
@@ -210,7 +216,6 @@ current form. That is the same mechanism behind **Scan with newly installed scra
   lists the raw answers grouped by source, which is honest but more work to read
 - field-by-field comparison, change preview and applying metadata
 - tag automation and auto-apply (the settings exist and are inert)
-- the optional scraper shim
 
 ---
 

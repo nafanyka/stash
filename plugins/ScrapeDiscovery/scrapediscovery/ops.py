@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import base64
 
-from . import logs, normalize, settings
+from . import consensus, logs, normalize, settings
 from .db import migrations, repo as R
 
 # Statuses grouped the way the inbox tabs present them.
@@ -343,8 +343,12 @@ def op_scan_start(context, args):
         task_args["ignore_cache"] = True
     job_id = context.client.run_plugin_task(
         settings.PLUGIN_ID, TASK_DISCOVER_SCENES, task_args)
-    for scene_id in scene_ids:
-        context.repo.set_scene_status(int(scene_id), R.SCANNING)
+    # The scene is deliberately *not* marked as scanning here. A queued job has not
+    # started - this server had 1290 jobs ahead of it - and writing the status
+    # optimistically leaves a scene stuck claiming to scan if the job never runs, with
+    # no scan row for the sweep to repair. The scan sets the status when it begins;
+    # until then the job id is what the caller watches. Queuing twice is harmless
+    # anyway: the second scan finds everything cached and finishes in milliseconds.
     return {"job_id": job_id, "scene_ids": scene_ids, "mode": mode}
 
 
@@ -370,6 +374,119 @@ def op_scan_cancel(context, args):
 TASK_DISCOVER_SCENES = "Discover scenes"
 
 
+# ------------------------------------------------------- the scraper shim's op
+
+# What the shim should do, decided here so the shim itself holds no policy.
+RETURNED = "returned"        # hand this scene to Stash's merge dialog
+NO_CONSENSUS = "no_consensus"  # answers exist, none of them trustworthy
+QUEUED = "queued"            # nothing stored; a scan has been started
+RUNNING = "running"          # a scan for this scene is already going
+
+
+def _scraper_hosts(context):
+    """scraper id -> declared hosts, from the stored registry.
+
+    Read from ScrapeDiscovery's own tables rather than by calling `listScrapers`: this
+    runs while a user waits for a scrape menu, and the live instance has 780 scrapers.
+    """
+    from . import registry as registry_module
+    known = context.repo.known_scrapers()
+    empty = registry_module.Registry([], context.config)
+    return {record["id"]: empty.hosts_of(record) for record in known.values()}
+
+
+def op_scraper_entry(context, args):
+    """Everything the scraper shim needs, in one call.
+
+    The shim is a thin entry point on purpose (see docs/architecture.md section 2), so
+    the decision of what to hand back - a scene, nothing, or a queued job - is made
+    here, against the same engine and database everything else uses.
+    """
+    scene_id = int(args.get("scene_id") or 0)
+    if not scene_id:
+        return {"ok": False, "error": "scene_id is required"}
+
+    context.repo.sweep_stale_scans()
+    state = context.repo.scene_state(scene_id) or {}
+    if state.get("status") == R.SCANNING:
+        # Say so rather than starting a second scan of the same scene.
+        return {"action": RUNNING, "scene": None,
+                "message": "a discovery scan for this scene is already running"}
+
+    results = context.repo.results_of_scene(scene_id)
+    if results:
+        scans = context.repo.scans_for(scene_id, limit=1)
+        snapshot = (scans[0]["scene_snapshot"] if scans else None) or {}
+        if args.get("refreshScene", True):
+            try:
+                live = context.client.find_scene(scene_id)
+                if live:
+                    snapshot = normalize.scene_snapshot(live)
+            except Exception as exc:  # fall back to what the scan recorded
+                from .executor import describe_error
+                logs.debug("could not re-read scene %s: %s"
+                           % (scene_id, describe_error(exc)))
+
+        agreed = consensus.best(
+            results, snapshot,
+            threshold=float(context.config["titleMergeThreshold"]),
+            scraper_hosts=_scraper_hosts(context))
+        if agreed:
+            image = None
+            if agreed.get("image_sha256") and args.get("includeImage", True):
+                blob = context.repo.blob(agreed["image_sha256"])
+                if blob:
+                    image = normalize.rebuild_data_uri({"$blob": blob["sha256"]}, blob)
+            return {
+                "action": RETURNED,
+                "scene": consensus.to_scraped_scene(agreed, image),
+                "consensus": {
+                    "reason": agreed["reason"],
+                    "independent_sources": agreed["independent_sources"],
+                    "sources": agreed["sources"],
+                    "witnesses": agreed["witnesses"],
+                    "considered": agreed["considered"],
+                    "without_evidence": agreed["without_evidence"],
+                    "discarded_groups": agreed["discarded_groups"],
+                },
+            }
+        return {"action": NO_CONSENSUS, "scene": None,
+                "results": len(results),
+                "message": "%d stored answer(s), none of them corroborated well enough "
+                           "to offer as metadata - open ScrapeDiscovery to review them"
+                           % len(results)}
+
+    if not args.get("queue", True):
+        return {"action": NO_CONSENSUS, "scene": None, "results": 0,
+                "message": "nothing has been discovered for this scene yet"}
+
+    mode = str(args.get("mode") or context.config["defaultMode"]).lower()
+    if mode not in (settings.NORMAL, settings.DEEP):
+        mode = settings.NORMAL
+    job_id = context.client.run_plugin_task(
+        settings.PLUGIN_ID, TASK_DISCOVER_SCENES,
+        {"scene_ids": str(scene_id), "mode": mode, "trigger": "scraper"})
+    return {"action": QUEUED, "scene": None, "job_id": job_id, "mode": mode,
+            "message": "discovery queued (%s scan) - watch the job queue, then open "
+                       "ScrapeDiscovery" % mode}
+
+
+def op_consensus(context, args):
+    """The consensus for a scene, for the UI to show alongside the raw answers."""
+    scene_id = int(args.get("scene_id") or 0)
+    results = context.repo.results_of_scene(scene_id)
+    if not results:
+        return {"consensus": None, "results": 0}
+    scans = context.repo.scans_for(scene_id, limit=1)
+    snapshot = (scans[0]["scene_snapshot"] if scans else None) or {}
+    agreed = consensus.best(
+        results, snapshot,
+        threshold=float(context.config["titleMergeThreshold"]),
+        scraper_hosts=_scraper_hosts(context))
+    return {"consensus": agreed, "results": len(results),
+            "preview": consensus.to_scraped_scene(agreed) if agreed else None}
+
+
 HANDLERS = {
     "ping": op_ping,
     "diagnostics.info": op_diagnostics,
@@ -383,4 +500,6 @@ HANDLERS = {
     "scan.start": op_scan_start,
     "scan.status": op_scan_status,
     "scan.cancel": op_scan_cancel,
+    "scraper.entry": op_scraper_entry,
+    "consensus.get": op_consensus,
 }
