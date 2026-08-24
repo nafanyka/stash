@@ -10,12 +10,24 @@ plugins/<Name>/<Name>.yml     plugin manifest (+ .py / .js / README.md next to i
 scrapers/<Name>/<Name>.yml    scraper manifest (+ .py next to it)
   scrapers/ScrapeAll/         probes every non-URL scene source, merges the hits
   plugins/ScrapeAllSettings/  the settings ScrapeAll obeys (no scraping of its own)
+  plugins/ScrapeDiscovery/    runs many installed scrapers per scene, keeps every
+                              answer in its own database, changes nothing
 common/python/stash_common/   shared helpers, bundled into packages that import them
+docs/                         ScrapeDiscovery's architecture, schema and dev notes
+tests/                        pytest suite, no Stash server needed
 dist/plugins/index.yml        generated source index — the URL Stash subscribes to
 dist/scrapers/index.yml       generated source index
 .github/workflows/publish.yml CI: build zips + indexes, deploy to GitHub Pages
 .github/workflows/build_index.py  the packager, runnable locally
 ```
+
+ScrapeAll and ScrapeDiscovery answer the same question from opposite ends. ScrapeAll is
+a scraper: it probes the sources, merges the hits, and hands Stash one scraped scene to
+save. ScrapeDiscovery is an orchestrator: it probes far more sources, stores every
+answer separately with its provenance, and writes nothing until you pick from it. Use
+ScrapeAll when you expect one good answer; use ScrapeDiscovery when you do not know
+which scraper, if any, knows the scene. See
+[`plugins/ScrapeDiscovery/README.md`](plugins/ScrapeDiscovery/README.md).
 
 One `.yml` per folder, named after the folder. Stash scans the scrapers directory
 recursively and tries to load **every** `.yml` it finds as a scraper config, so a
@@ -75,6 +87,16 @@ then rebuilds and deploys `dist/` on every push to `main`.
 
 The two are independent — each index is served next to its own zips, so neither
 can hand Stash a package that mismatches its `sha256`.
+
+## Tests
+
+```bash
+pip install pytest pyyaml
+python -m pytest tests/
+```
+
+Covers ScrapeDiscovery only, and needs no Stash server: the Stash API is faked, so the
+engine, cache, normalisation and inbox queries are all exercised offline.
 
 ## Building locally
 

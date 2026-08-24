@@ -1,0 +1,549 @@
+/*
+ * ScrapeDiscovery styles.
+ *
+ * Built on Stash's own look rather than beside it: colours come from the Bootstrap
+ * variables Stash already defines, so the page follows the user's theme instead of
+ * carrying its own. Only the few things Stash has no equivalent for - a confidence
+ * badge, an attempt status, the result cards - are styled here.
+ *
+ * Every selector is namespaced under .sd- so an injected stylesheet cannot alter the
+ * rest of the Stash UI.
+ */
+
+.sd-page {
+  padding: 1rem 1.25rem 3rem;
+  max-width: 1600px;
+}
+
+.sd-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.sd-header h1 {
+  font-size: 1.6rem;
+  margin: 0;
+}
+
+.sd-header h1 a {
+  color: inherit;
+}
+
+.sd-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sd-page h3 {
+  font-size: 1.05rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.75;
+  margin: 1.75rem 0 0.5rem;
+}
+
+.sd-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.sd-section-head h3 {
+  margin-bottom: 0.25rem;
+}
+
+/* ------------------------------------------------------------------ messages */
+
+.sd-note {
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+.sd-sub {
+  font-size: 0.8rem;
+  opacity: 0.6;
+  word-break: break-all;
+}
+
+.sd-loading,
+.sd-empty {
+  padding: 1.5rem 0;
+  opacity: 0.7;
+}
+
+.sd-empty {
+  max-width: 60ch;
+  line-height: 1.5;
+}
+
+.sd-error,
+.sd-ok {
+  border-radius: 0.25rem;
+  padding: 0.6rem 0.8rem;
+  margin: 0.5rem 0;
+  border-left: 3px solid;
+}
+
+.sd-error {
+  background: rgba(220, 53, 69, 0.12);
+  border-left-color: #dc3545;
+}
+
+.sd-ok {
+  background: rgba(40, 167, 69, 0.12);
+  border-left-color: #28a745;
+}
+
+.sd-error-inline {
+  color: #ff8a94;
+  font-size: 0.85rem;
+  word-break: break-word;
+}
+
+.sd-warn {
+  color: #ffc107;
+  font-size: 0.85rem;
+}
+
+.sd-retry {
+  margin-left: 0.75rem;
+}
+
+/* -------------------------------------------------------------------- filters */
+
+.sd-tabs {
+  margin: 0.5rem 0 1rem;
+}
+
+.sd-tabs .nav-link {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.sd-tabs .nav-link.active {
+  border-bottom-color: currentColor;
+  font-weight: 600;
+}
+
+.sd-count {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.4rem;
+  border-radius: 0.75rem;
+  font-size: 0.75rem;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.sd-filters {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.sd-search {
+  flex: 1 1 22rem;
+  min-width: 12rem;
+}
+
+.sd-minconf {
+  width: 7rem;
+}
+
+.sd-sort {
+  width: 12rem;
+}
+
+/* --------------------------------------------------------------------- tables */
+
+/* Wide tables scroll inside their own box; the page itself never does. */
+.sd-table-wrap {
+  overflow-x: auto;
+}
+
+.sd-table {
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+.sd-table th {
+  white-space: nowrap;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.65;
+}
+
+.sd-table td {
+  vertical-align: top;
+}
+
+.sd-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sd-col-scene {
+  min-width: 18rem;
+}
+
+.sd-has-errors {
+  color: #ff8a94;
+}
+
+.sd-target {
+  max-width: 42rem;
+  word-break: break-all;
+}
+
+.sd-attempts td {
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
+}
+
+.sd-pager {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.sd-bulk {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ---------------------------------------------------------------- confidence */
+
+/* Colour carries the level, but the number is always shown as text too: colour
+   alone would leave the level unreadable for anyone who cannot distinguish it. */
+.sd-conf {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border-radius: 0.25rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.sd-conf-almost_certain {
+  background: rgba(40, 167, 69, 0.25);
+  color: #7ee2a0;
+}
+
+.sd-conf-strong {
+  background: rgba(23, 162, 184, 0.25);
+  color: #79dcec;
+}
+
+.sd-conf-possible {
+  background: rgba(255, 193, 7, 0.22);
+  color: #ffd965;
+}
+
+.sd-conf-weak {
+  background: rgba(255, 255, 255, 0.1);
+  opacity: 0.8;
+}
+
+.sd-conf-none {
+  opacity: 0.4;
+}
+
+/* ------------------------------------------------------------------- statuses */
+
+.sd-pill,
+.sd-att {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sd-pill-candidates,
+.sd-att-match {
+  background: rgba(40, 167, 69, 0.25);
+  color: #7ee2a0;
+}
+
+.sd-pill-results {
+  background: rgba(23, 162, 184, 0.22);
+  color: #79dcec;
+}
+
+.sd-pill-scanning {
+  background: rgba(255, 193, 7, 0.22);
+  color: #ffd965;
+}
+
+.sd-pill-failed,
+.sd-att-error,
+.sd-att-timeout {
+  background: rgba(220, 53, 69, 0.22);
+  color: #ff9aa3;
+}
+
+.sd-pill-applied {
+  background: rgba(111, 66, 193, 0.28);
+  color: #c9aaff;
+}
+
+.sd-att-no_match,
+.sd-att-skipped {
+  opacity: 0.6;
+}
+
+.sd-cached {
+  font-size: 0.7rem;
+  opacity: 0.6;
+  margin-left: 0.3rem;
+}
+
+/* ---------------------------------------------------------------------- stats */
+
+.sd-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.sd-stat-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sd-stat-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+}
+
+/* -------------------------------------------------------------- scan controls */
+
+.sd-scan-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0.5rem 0 1rem;
+}
+
+.sd-running {
+  background: rgba(255, 193, 7, 0.1);
+  border-left: 3px solid #ffc107;
+  border-radius: 0.25rem;
+  padding: 0.5rem 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.sd-running-row + .sd-running-row {
+  margin-top: 0.25rem;
+}
+
+/* -------------------------------------------------------------------- results */
+
+.sd-scene-summary dl,
+.sd-result-fields dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.15rem 1rem;
+  margin: 0.25rem 0;
+}
+
+.sd-scene-summary dt,
+.sd-result-fields dt {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+  font-weight: 400;
+}
+
+.sd-scene-summary dd,
+.sd-result-fields dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.sd-url-chip {
+  display: inline-block;
+  margin: 0.15rem 0.35rem 0.15rem 0;
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.25rem;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.8rem;
+}
+
+.sd-result {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.3rem;
+  margin-bottom: 0.6rem;
+  overflow: hidden;
+}
+
+.sd-result-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  padding: 0.35rem 0.6rem;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.85rem;
+}
+
+.sd-source {
+  font-weight: 600;
+}
+
+.sd-method,
+.sd-depth {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+}
+
+.sd-result-body {
+  display: flex;
+  gap: 0.8rem;
+  padding: 0.6rem;
+}
+
+.sd-result-image {
+  flex: 0 0 12rem;
+  min-height: 3rem;
+}
+
+.sd-result-image img {
+  max-width: 100%;
+  border-radius: 0.2rem;
+}
+
+.sd-result-fields {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.sd-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+}
+
+.sd-candidate {
+  padding: 0.35rem 0;
+}
+
+/* ------------------------------------------------------------------- settings */
+
+.sd-settings {
+  display: grid;
+  gap: 1rem;
+  max-width: 70rem;
+}
+
+.sd-setting label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.sd-setting-key {
+  flex: 0 0 16rem;
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.sd-setting label input[type="text"],
+.sd-setting label input[type="number"] {
+  max-width: 22rem;
+}
+
+.sd-setting .sd-note {
+  margin-left: 16.75rem;
+  max-width: 60ch;
+}
+
+.sd-json {
+  font-family: monospace;
+  font-size: 0.8rem;
+}
+
+.sd-diagnostics {
+  margin-top: 2rem;
+}
+
+/* -------------------------------------------------------------- scene page tab */
+
+.sd-scene-tab {
+  padding: 1rem;
+}
+
+.sd-tab-badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0 0.35rem;
+  border-radius: 0.7rem;
+  font-size: 0.7rem;
+  background: rgba(40, 167, 69, 0.3);
+}
+
+.sd-tab-badge-muted {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.sd-top {
+  list-style: none;
+  padding: 0;
+}
+
+.sd-top li {
+  padding: 0.15rem 0;
+}
+
+/* Narrow screens: the settings rows and result cards stop being two columns. */
+@media (max-width: 720px) {
+  .sd-setting label {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sd-setting-key {
+    flex-basis: auto;
+  }
+
+  .sd-setting .sd-note {
+    margin-left: 0;
+  }
+
+  .sd-result-body {
+    flex-direction: column;
+  }
+
+  .sd-result-image {
+    flex-basis: auto;
+  }
+}

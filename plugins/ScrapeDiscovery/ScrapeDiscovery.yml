@@ -1,0 +1,180 @@
+name: ScrapeDiscovery
+description: >-
+  Tries the scrapers you already have installed against a scene, follows the URLs they
+  return, and keeps every answer in its own database so you can review the candidates
+  and apply the parts you want. It never writes to a scene on its own.
+version: 0.1.0
+url: https://github.com/nafanyka/stash
+
+exec:
+  - python
+  - "{pluginDir}/ScrapeDiscovery.py"
+interface: raw
+
+# Injected into the Stash UI. The files are served from /plugin/ScrapeDiscovery/...
+# and loaded as classic scripts before the router mounts, which is what lets the page
+# register its own route. No csp block is needed: everything is same-origin, and the
+# base policy already allows data: images, which is how scrapers return covers.
+ui:
+  javascript:
+    - ui/scrapediscovery.js
+  css:
+    - ui/scrapediscovery.css
+
+tasks:
+  # Started from a scene's Discovery tab or the ScrapeDiscovery page, which pass the
+  # scene ids in args. Listed here because a task is the only way to get a job with a
+  # progress bar and a stop button.
+  - name: Discover scenes
+    description: >-
+      Scan specific scenes. Started from a scene's Discovery tab or from the
+      ScrapeDiscovery page; running it here without a scene does nothing.
+    defaultArgs:
+      task: Discover scenes
+
+  - name: Discover tagged scenes
+    description: >-
+      Scan every scene carrying the input tag (needs_scrape by default). The main batch
+      workflow: tag the scenes you cannot identify, then run this and come back to the
+      ScrapeDiscovery inbox.
+    defaultArgs:
+      task: Discover tagged scenes
+
+  - name: Discover unresolved scenes
+    description: >-
+      Scan scenes ScrapeDiscovery has on record with no candidates yet - never scanned,
+      or scanned and nothing found.
+    defaultArgs:
+      task: Discover unresolved scenes
+
+  - name: Retry failed discoveries
+    description: >-
+      Re-run the scenes whose last scan failed, ignoring the cached errors that would
+      otherwise make those attempts skip.
+    defaultArgs:
+      task: Retry failed discoveries
+
+  - name: Scan with newly installed scrapers
+    description: >-
+      Scan unresolved scenes with the scrapers they have never been tried with -
+      newly installed ones, and ones whose configuration has changed since.
+    defaultArgs:
+      task: Scan with newly installed scrapers
+
+  - name: Show effective settings
+    description: >-
+      Log the configuration exactly as discovery will read it, plus what is installed
+      and where the database lives. Run this first when something behaves oddly.
+    defaultArgs:
+      task: Show effective settings
+
+  - name: Clear expired cache
+    description: >-
+      Drop expired attempts that returned nothing. Attempts that returned results are
+      left alone - those are what candidates are rebuilt from.
+    defaultArgs:
+      task: Clear expired cache
+
+  - name: Delete old history
+    description: Delete scans, attempts and results older than the retention setting.
+    defaultArgs:
+      task: Delete old history
+
+  - name: Vacuum database
+    description: Compact the ScrapeDiscovery database and drop unreferenced images.
+    defaultArgs:
+      task: Vacuum database
+
+# Only the scalar settings are declared here, so they show up in Stash's own plugin
+# settings panel. Stash offers no default and only three types, so every default lives
+# in scrapediscovery/settings.py, and the structured settings (per-scraper priorities,
+# scoring weights) are edited on the ScrapeDiscovery settings page, which writes into
+# this same store.
+settings:
+  databasePath:
+    displayName: Database path
+    description: >-
+      Where scrape-discovery.sqlite lives. Empty means
+      <stash config dir>/scrape-discovery/scrape-discovery.sqlite. Do not put it in the
+      plugin directory: updating a plugin package deletes the files it installed.
+    type: STRING
+  defaultMode:
+    displayName: Default scan
+    description: What the Discover button runs - "normal" or "deep". Default normal.
+    type: STRING
+  maxConcurrency:
+    displayName: Concurrent scrapers
+    description: >-
+      How many scraper invocations run at once. Each one is a request to Stash that may
+      launch a browser, so keep this small. Default 3, maximum 16.
+    type: NUMBER
+  defaultTimeout:
+    displayName: Scraper timeout (seconds)
+    description: >-
+      How long one scraper gets before its attempt is abandoned. Abandoning the request
+      also cancels the scraper process on the server. Default 30.
+    type: NUMBER
+  maxDepth:
+    displayName: Max URL depth
+    description: >-
+      How far to follow URLs found inside scraper results. The scene's own URLs are
+      depth 0. Default 2.
+    type: NUMBER
+  maxUrlsPerScan:
+    displayName: Max URLs per scan
+    description: Stop discovering new URLs for a scene after this many. Default 40.
+    type: NUMBER
+  maxAttemptsPerScan:
+    displayName: Max attempts per scene
+    description: Hard ceiling on scraper invocations for one scene. Default 250.
+    type: NUMBER
+  sceneTimeBudget:
+    displayName: Time budget per scene (seconds)
+    description: >-
+      Stop a scene's scan after this long, keeping everything already found. 0 removes
+      the limit. Default 900.
+    type: NUMBER
+  normalIncludesNameScrapers:
+    displayName: Normal scan includes name search
+    description: >-
+      Run name-search scrapers during a normal scan. Off by default - a name search is
+      the slowest kind of attempt and mostly returns near-misses. Deep scan always
+      runs them.
+    type: BOOLEAN
+  excludedScrapers:
+    displayName: Excluded scrapers
+    description: >-
+      Comma-separated scraper ids or names never to invoke. Defaults to the local
+      utilities that are not metadata sources (Filename, FileMetadata, CopyMetadata,
+      autotag and friends). Clearing this re-includes them.
+    type: STRING
+  inputTag:
+    displayName: Input tag
+    description: Tag that marks a scene for batch discovery. Default needs_scrape.
+    type: STRING
+  reviewTag:
+    displayName: Review tag
+    description: Tag added when a scan found candidates. Default scrape_review.
+    type: STRING
+  failedTag:
+    displayName: Failed tag
+    description: Tag added when a scan found nothing. Default scrape_failed.
+    type: STRING
+  manageTags:
+    displayName: Let ScrapeDiscovery manage those tags
+    description: >-
+      Off by default, and while it is off discovery never touches a scene at all, not
+      even its tags.
+    type: BOOLEAN
+  historyRetentionDays:
+    displayName: History retention (days)
+    description: >-
+      Delete scans, attempts and raw results older than this when the retention task
+      runs. 0 keeps everything. Default 180.
+    type: NUMBER
+  debugLogging:
+    displayName: Debug logging
+    description: >-
+      Log every attempt's input, cache decision and timing. Useful when a scraper
+      misbehaves, noisy the rest of the time - a deep scan is hundreds of attempts.
+    type: BOOLEAN
