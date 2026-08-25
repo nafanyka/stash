@@ -81,6 +81,37 @@ def classify_error(message) -> str:
     return TRANSIENT
 
 
+def error_signature(message) -> str:
+    """One error message reduced to the shape of the failure.
+
+    Raw messages embed the URL that was fetched and the scraper's own name, so grouping
+    by the exact text turns one recurring failure into a hundred singletons - useless
+    for answering "what is wrong with this scraper?". These three, from the same run,
+    are one problem:
+
+        scraper YouPorn: failed to load URL "https://www.youporn.com/watch//": 404
+        scraper Xvideos: failed to load URL "https://www.xvideos.com/video./x": 404
+        scraper xhamster: failed to load URL "https://xhamster.com/videos/": 404
+
+    The prefix naming the scraper goes, quoted values become a placeholder, and runs of
+    digits collapse, leaving the sentence that describes the fault.
+    """
+    text = _WHITESPACE.sub(" ", str(message or "")).strip()
+    if not text:
+        return "(no message)"
+
+    # "scraper Foo: ..." and "error while ... with scraper Foo: ..." both just say who.
+    text = re.sub(r"^scraper\s+\S+?:\s*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^error while [a-z ]*scraping with scraper\s+\S+?:\s*", "", text,
+                  flags=re.IGNORECASE)
+    # Quoted URLs and bare URLs are the variable part of the same complaint.
+    text = re.sub(r'"[^"]*"', '"..."', text)
+    text = re.sub(r"https?://\S+", "<url>", text)
+    text = re.sub(r"\d+", "#", text)
+    text = _WHITESPACE.sub(" ", text).strip(" .:")
+    return text[:180] or "(no message)"
+
+
 class Policy:
     """How long a stored attempt stays usable, given the configuration."""
 

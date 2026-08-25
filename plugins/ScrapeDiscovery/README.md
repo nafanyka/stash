@@ -136,6 +136,57 @@ retried much sooner.
 
 ---
 
+## The Scrapers page
+
+**ScrapeDiscovery → Scrapers** is the payoff of storing every attempt: a table of what
+each installed scraper has actually done for you.
+
+| | |
+| --- | --- |
+| Attempts / Match / None / Err / T-o | Counted from stored history, ignoring cache hits — a reused answer says nothing new about a scraper. |
+| Rate | Matches per attempt. |
+| Avg | How long it takes, which is what makes a useless scraper expensive. |
+| **How it fails** | The shape of its typical failure, how often, and whether that is permanent or transient. |
+| Last used | |
+
+Sort by **Time wasted** — attempts that found nothing, weighted by how long they took —
+to see what is costing you most for nothing.
+
+The failure column is the useful one. Raw messages embed the URL that was fetched, so
+they are grouped by signature: on one real scan, 101 failures across 187 scrapers came
+down to seven shapes.
+
+```
+x24  permanent  scraper script error: exit status #
+x18  permanent  failed to load URL "...": http error #:Not Found
+x9   permanent  Internal system error. Error <runtime error: invalid memory address...>
+x9   transient  could not unmarshal json from script output: EOF
+x8   permanent  failed to load URL "...": http error #:Bad Request
+x7   transient  failed to load URL "...": exec: "...": executable file not found in $PATH
+x5   transient  timed out after #s
+```
+
+Which tells you three different things: a 404 on a query URL means the scraper has
+nothing to do with your library, a non-zero exit means it is broken, and
+`executable file not found in $PATH` means it needs something you have not installed.
+Hover any row for the verbatim message and the last time it happened.
+
+### Uninstalling a scraper
+
+Each row offers **Uninstall**, which removes the package through Stash's own package
+manager. It asks first, showing what will be deleted, where it came from, and what the
+scraper has found for you — and the backend refuses unless the confirmation echoes the
+scraper's own id, so a mis-click in a table of 780 rows cannot do it.
+
+- **The history is kept.** It is the record of what was tried and why it was not worth
+  keeping, and its results may be part of another candidate's evidence.
+- **Only packages Stash installed can go.** A scraper copied in by hand, or a built-in,
+  says so instead of offering a button that would not work.
+- **ScrapeDiscovery's own entry point is refused**, since that would be removing the
+  thing you are using.
+- Stash removes the files in a job, so the scraper stays loaded until you press
+  **Reload scrapers** afterwards.
+
 ## Configuration
 
 Both Stash's own plugin settings panel and the ScrapeDiscovery settings page write to
@@ -202,8 +253,9 @@ current form. That is the same mechanism behind **Scan with newly installed scra
 - raw and normalised storage of every answer, with images stored once and out of line
 - attempt caching with per-status TTLs and error classification
 - discovered URLs recorded with the scrapers that could follow them
-- the inbox, the scene discovery view, scan history, per-scraper statistics, settings
-  and diagnostics
+- the inbox, the scene discovery view, scan history, settings and diagnostics
+- a per-scraper table: attempts, matches, failures grouped by shape, time wasted, and
+  uninstalling a scraper that is earning its keep
 - a conservative consensus - what independent sources agree on - shown on the scene page
   and offered through the scraper shim's merge dialog
 - **no writes to Stash at all**

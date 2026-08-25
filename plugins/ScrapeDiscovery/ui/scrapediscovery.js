@@ -479,6 +479,11 @@
           { className: "sd-header-actions" },
           h(
             Router.Link,
+            { className: "btn btn-secondary", to: BASE + "/scrapers" },
+            "Scrapers"
+          ),
+          h(
+            Router.Link,
             { className: "btn btn-secondary", to: BASE + "/settings" },
             "Settings"
           )
@@ -1311,6 +1316,442 @@
     );
   }
 
+  /* ----------------------------------------------------------------- scrapers */
+
+  var SCRAPER_SORTS = [
+    { key: "attempts", label: "Attempts" },
+    { key: "matches", label: "Matches" },
+    { key: "match_rate", label: "Match rate" },
+    { key: "errors", label: "Errors" },
+    { key: "timeouts", label: "Timeouts" },
+    { key: "avg_ms", label: "Average time" },
+    { key: "waste", label: "Time wasted" },
+    { key: "last_attempt_at", label: "Last used" },
+    { key: "name", label: "Name" }
+  ];
+
+  function rate(value) {
+    if (value === null || value === undefined) return "—";
+    return Math.round(value * 100) + "%";
+  }
+
+  // Uninstalling deletes files on the Stash host, so the confirmation is a second,
+  // deliberate click that first shows what will go and what the scraper has done for
+  // you. The backend additionally requires the id to be echoed back.
+  function UninstallControl(props) {
+    var row = props.row;
+    var state = React.useState({ asking: false, busy: false, done: null, error: null });
+    var value = state[0];
+    var setValue = state[1];
+
+    if (row.protected || !row.uninstallable) {
+      return h(
+        "span",
+        { className: "sd-note", title: row.uninstall_blocked || "" },
+        "—"
+      );
+    }
+
+    if (value.done) {
+      return h(
+        "span",
+        { className: "sd-note" },
+        "removed (job " + value.done + ")",
+        h(
+          "button",
+          {
+            className: "btn btn-sm btn-secondary sd-reload",
+            onClick: function () {
+              callOp("scrapers.reload", {}).then(props.onChanged, props.onChanged);
+            }
+          },
+          "Reload scrapers"
+        )
+      );
+    }
+
+    if (!value.asking) {
+      return h(
+        "button",
+        {
+          className: "btn btn-sm btn-outline-danger",
+          onClick: function () {
+            setValue({ asking: true, busy: false, done: null, error: null });
+          }
+        },
+        "Uninstall"
+      );
+    }
+
+    var pkg = row.package || {};
+    return h(
+      "div",
+      { className: "sd-uninstall" },
+      h(
+        "div",
+        { className: "sd-note" },
+        "Delete package ",
+        h("strong", null, pkg.package_id || row.id),
+        pkg.version ? " " + pkg.version : "",
+        " from the Stash host?"
+      ),
+      h("div", { className: "sd-note" }, pkg.sourceURL || ""),
+      h(
+        "div",
+        { className: "sd-note" },
+        row.matches
+          ? "It has matched " + row.matches + " time(s) in " + row.attempts +
+            " attempt(s) — it is finding things."
+          : "It has never matched in " + row.attempts + " attempt(s)."
+      ),
+      h(
+        "div",
+        { className: "sd-note" },
+        "Its history here is kept. You can reinstall it from the same source."
+      ),
+      h(
+        "div",
+        { className: "sd-uninstall-actions" },
+        h(
+          "button",
+          {
+            className: "btn btn-sm btn-danger",
+            disabled: value.busy,
+            onClick: function () {
+              setValue({ asking: true, busy: true, done: null, error: null });
+              callOp("scrapers.uninstall", {
+                scraper_id: row.id,
+                confirm: row.id
+              }).then(
+                function (data) {
+                  setValue({ asking: false, busy: false, done: data.job_id || "?",
+                             error: null });
+                },
+                function (error) {
+                  setValue({ asking: true, busy: false, done: null,
+                             error: error.message });
+                }
+              );
+            }
+          },
+          value.busy ? "Removing…" : "Yes, uninstall"
+        ),
+        h(
+          "button",
+          {
+            className: "btn btn-sm btn-secondary",
+            disabled: value.busy,
+            onClick: function () {
+              setValue({ asking: false, busy: false, done: null, error: null });
+            }
+          },
+          "Cancel"
+        )
+      ),
+      value.error ? h("div", { className: "sd-error-inline" }, value.error) : null
+    );
+  }
+
+  function FailureCell(props) {
+    var row = props.row;
+    var top = row.top_error;
+    var expandedState = React.useState(false);
+    var expanded = expandedState[0];
+    var setExpanded = expandedState[1];
+
+    if (!top) {
+      return h("span", { className: "sd-note" }, row.errors ? "—" : "");
+    }
+
+    var kinds = row.error_kinds || {};
+    return h(
+      "div",
+      { className: "sd-failure" },
+      h(
+        "div",
+        null,
+        h(
+          "span",
+          {
+            className: "sd-att sd-att-" +
+              (top.kind === "permanent" ? "error" : "timeout")
+          },
+          top.kind === "permanent" ? "permanent" : "transient"
+        ),
+        " ",
+        h("span", { title: top.example || "" }, top.signature),
+        h("span", { className: "sd-note" }, " ×" + top.count)
+      ),
+      row.distinct_errors > 1
+        ? h(
+            "button",
+            {
+              className: "sd-linkish",
+              onClick: function () {
+                setExpanded(!expanded);
+              }
+            },
+            expanded
+              ? "hide the other " + (row.distinct_errors - 1)
+              : row.distinct_errors - 1 + " other failure shape(s)"
+          )
+        : null,
+      expanded
+        ? h(
+            "ul",
+            { className: "sd-failure-list" },
+            (row.error_groups || []).slice(1).map(function (group, index) {
+              return h(
+                "li",
+                { key: index, title: group.example || "" },
+                group.signature + " ×" + group.count
+              );
+            })
+          )
+        : null,
+      row.last_error
+        ? h(
+            "div",
+            { className: "sd-note", title: row.last_error.message },
+            "last: " + when(row.last_error.at)
+          )
+        : null,
+      kinds.permanent && kinds.transient
+        ? h(
+            "div",
+            { className: "sd-note" },
+            kinds.permanent + " permanent, " + kinds.transient + " transient"
+          )
+        : null
+    );
+  }
+
+  function ScrapersPage() {
+    var sortState = React.useState("attempts");
+    var sort = sortState[0];
+    var setSort = sortState[1];
+    var dirState = React.useState("desc");
+    var direction = dirState[0];
+    var setDirection = dirState[1];
+    var untriedState = React.useState(false);
+    var includeUntried = untriedState[0];
+    var setIncludeUntried = untriedState[1];
+    var filterState = React.useState("");
+    var filter = filterState[0];
+    var setFilter = filterState[1];
+
+    var stats = useOp("scrapers.stats", {
+      sort: sort,
+      direction: direction,
+      includeUntried: includeUntried,
+      limit: 1000
+    });
+
+    if (stats.loading && !stats.data) return h(Loading, { what: "Loading scrapers…" });
+    if (stats.error) return h(Problem, { message: stats.error, onRetry: stats.reload });
+
+    var data = stats.data || {};
+    var totals = data.totals || {};
+    var needle = filter.trim().toLowerCase();
+    var rows = (data.scrapers || []).filter(function (row) {
+      if (!needle) return true;
+      return (
+        row.id.toLowerCase().indexOf(needle) >= 0 ||
+        (row.name || "").toLowerCase().indexOf(needle) >= 0 ||
+        ((row.top_error || {}).signature || "").toLowerCase().indexOf(needle) >= 0
+      );
+    });
+
+    return h(
+      "div",
+      { className: "sd-page" },
+      h(
+        "div",
+        { className: "sd-header" },
+        h(
+          "h1",
+          null,
+          h(Router.Link, { to: BASE }, "ScrapeDiscovery"),
+          " / Scrapers"
+        ),
+        h(
+          "div",
+          { className: "sd-header-actions" },
+          h(Router.Link, { className: "btn btn-secondary", to: BASE }, "Inbox"),
+          h(
+            Router.Link,
+            { className: "btn btn-secondary", to: BASE + "/settings" },
+            "Settings"
+          )
+        )
+      ),
+
+      h(
+        "div",
+        { className: "sd-stats" },
+        stat("Known", data.total || 0),
+        stat("Tried", totals.tried || 0),
+        stat("Never tried", totals.untried || 0),
+        stat("Attempts", totals.attempts || 0),
+        stat("Matches", totals.matches || 0),
+        stat("Nothing found", totals.no_matches || 0),
+        stat("Errors", totals.errors || 0),
+        stat("Timeouts", totals.timeouts || 0)
+      ),
+
+      h(
+        "div",
+        { className: "sd-note" },
+        "Counted from stored history, ignoring cache hits — a reused answer says " +
+          "nothing new about a scraper. A high error count is normal: most of it is " +
+          "scrapers being handed a scene from a site they have nothing to do with."
+      ),
+
+      h(
+        "div",
+        { className: "sd-filters" },
+        h("input", {
+          className: "form-control sd-search",
+          placeholder: "Filter by name, id or failure",
+          value: filter,
+          onChange: function (event) {
+            setFilter(event.target.value);
+          }
+        }),
+        h(
+          "select",
+          {
+            className: "form-control sd-sort",
+            value: sort,
+            onChange: function (event) {
+              setSort(event.target.value);
+            }
+          },
+          SCRAPER_SORTS.map(function (entry) {
+            return h("option", { key: entry.key, value: entry.key }, entry.label);
+          })
+        ),
+        h(
+          "button",
+          {
+            className: "btn btn-secondary",
+            onClick: function () {
+              setDirection(direction === "desc" ? "asc" : "desc");
+            }
+          },
+          direction === "desc" ? "↓" : "↑"
+        ),
+        h(
+          "label",
+          { className: "sd-toggle" },
+          h("input", {
+            type: "checkbox",
+            checked: includeUntried,
+            onChange: function (event) {
+              setIncludeUntried(event.target.checked);
+            }
+          }),
+          " show never tried"
+        )
+      ),
+
+      !data.packages_known
+        ? h(
+            "div",
+            { className: "sd-error" },
+            "Stash did not return its installed packages, so nothing can be " +
+              "uninstalled from here."
+          )
+        : null,
+
+      h(
+        "div",
+        { className: "sd-table-wrap" },
+        h(
+          "table",
+          { className: "table sd-table sd-scrapers" },
+          h(
+            "thead",
+            null,
+            h(
+              "tr",
+              null,
+              h("th", null, "Scraper"),
+              h("th", { className: "sd-num" }, "Att."),
+              h("th", { className: "sd-num" }, "Match"),
+              h("th", { className: "sd-num" }, "None"),
+              h("th", { className: "sd-num" }, "Err."),
+              h("th", { className: "sd-num" }, "T/o"),
+              h("th", { className: "sd-num" }, "Rate"),
+              h("th", { className: "sd-num" }, "Avg"),
+              h("th", null, "How it fails"),
+              h("th", null, "Last used"),
+              h("th", null, "")
+            )
+          ),
+          h(
+            "tbody",
+            null,
+            rows.map(function (row) {
+              return h(
+                "tr",
+                { key: row.id, className: row.enabled ? null : "sd-row-disabled" },
+                h(
+                  "td",
+                  null,
+                  h("div", null, row.name || row.id),
+                  h(
+                    "div",
+                    { className: "sd-sub" },
+                    row.id,
+                    (row.kinds || []).length
+                      ? " · " + (row.kinds || []).join("/")
+                      : "",
+                    row.enabled ? "" : " · disabled",
+                    row.protected ? " · protected" : ""
+                  )
+                ),
+                h("td", { className: "sd-num" }, row.attempts),
+                h(
+                  "td",
+                  { className: cx("sd-num", row.matches ? "sd-good" : null) },
+                  row.matches
+                ),
+                h("td", { className: "sd-num" }, row.no_matches),
+                h(
+                  "td",
+                  { className: cx("sd-num", row.errors ? "sd-has-errors" : null) },
+                  row.errors
+                ),
+                h("td", { className: "sd-num" }, row.timeouts),
+                h("td", { className: "sd-num" }, rate(row.match_rate)),
+                h(
+                  "td",
+                  { className: "sd-num" },
+                  row.avg_ms ? millis(Math.round(row.avg_ms)) : "—"
+                ),
+                h("td", { className: "sd-failure-cell" }, h(FailureCell, { row: row })),
+                h("td", { className: "sd-sub" }, when(row.last_attempt_at)),
+                h(
+                  "td",
+                  null,
+                  h(UninstallControl, { row: row, onChanged: stats.reload })
+                )
+              );
+            })
+          )
+        )
+      ),
+
+      h(
+        "div",
+        { className: "sd-note" },
+        rows.length + " of " + (data.total || 0) + " shown" +
+          (includeUntried ? "" : " — never-tried scrapers are hidden")
+      )
+    );
+  }
+
   /* ----------------------------------------------------------------- settings */
 
   function SettingsPage() {
@@ -1496,7 +1937,16 @@
     return h(
       "div",
       { className: "sd-diagnostics" },
-      h("h3", null, "Diagnostics"),
+      h(
+        "div",
+        { className: "sd-section-head" },
+        h("h3", null, "Diagnostics"),
+        h(
+          Router.Link,
+          { className: "btn btn-sm btn-secondary", to: BASE + "/scrapers" },
+          "Per-scraper statistics"
+        )
+      ),
       h(
         "div",
         { className: "sd-stats" },
@@ -1642,6 +2092,7 @@
 
   api.register.route(BASE, Inbox);
   api.register.route(BASE + "/settings", SettingsPage);
+  api.register.route(BASE + "/scrapers", ScrapersPage);
   api.register.route(BASE + "/scene/:id", SceneDiscovery);
 
   // The main menu. `before` on a container component replaces its children, so the

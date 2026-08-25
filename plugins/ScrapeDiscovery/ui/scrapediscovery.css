@@ -581,3 +581,74 @@
   font-size: 0.8rem;
   opacity: 0.8;
 }
+
+/* ------------------------------------------------------------------- scrapers */
+
+.sd-scrapers td {
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+}
+
+.sd-row-disabled {
+  opacity: 0.55;
+}
+
+.sd-good {
+  color: #7ee2a0;
+}
+
+.sd-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+/* The failure column carries the most text; give it room but stop it dominating. */
+.sd-failure-cell {
+  min-width: 20rem;
+  max-width: 34rem;
+}
+
+.sd-failure {
+  font-size: 0.85rem;
+  word-break: break-word;
+}
+
+.sd-failure-list {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
+/* A button that reads as a link: this expands detail, it does not act. */
+.sd-linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.78rem;
+  opacity: 0.7;
+  text-decoration: underline;
+  cursor: pointer;
+  color: inherit;
+}
+
+.sd-uninstall {
+  min-width: 17rem;
+  border: 1px solid rgba(220, 53, 69, 0.4);
+  border-radius: 0.25rem;
+  padding: 0.45rem 0.55rem;
+}
+
+.sd-uninstall-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.45rem;
+}
+
+.sd-reload {
+  margin-left: 0.5rem;
+}

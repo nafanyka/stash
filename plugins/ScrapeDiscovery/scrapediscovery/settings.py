@@ -61,6 +61,12 @@ DEFAULT_EXCLUDED_SCRAPERS = (
     "Filename",
     "scrapeCoverFromFile",
     "scene-cover-in-dir",
+    # ScrapeAll is an orchestrator too: one invocation probes every other source it can
+    # find. Calling it from a scan turns one attempt into a couple of hundred nested
+    # ones - observed live, where it was the slowest attempt of the run and timed out
+    # at 30s having achieved nothing. It is not a recursion (it will not call back
+    # here), just a multiplication, so this is a default rather than a hard block.
+    "ScrapeAll",
 )
 
 # Weight per scoring signal. Only the signals that apply to a given scene take part in

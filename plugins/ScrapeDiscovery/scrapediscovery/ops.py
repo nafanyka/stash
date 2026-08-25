@@ -471,6 +471,162 @@ def op_scraper_entry(context, args):
                        "ScrapeDiscovery" % mode}
 
 
+# ---------------------------------------------------------------- scrapers
+
+# Sortable columns for the scraper table, whitelisted because the sort comes from the
+# page. `waste` is the question a user actually has: what is costing time for nothing.
+SCRAPER_SORTS = ("attempts", "matches", "no_matches", "errors", "timeouts", "avg_ms",
+                 "match_rate", "waste", "name", "id", "last_attempt_at")
+
+
+def op_scraper_stats(context, args):
+    """Every known scraper with its record, and whether it can be uninstalled.
+
+    Derived entirely from stored history plus one package lookup, so it costs a single
+    Stash query however many scrapers are installed.
+    """
+    from . import cache
+
+    rows = context.repo.scraper_stats_full(
+        include_untried=bool(args.get("includeUntried", True)))
+    results = context.repo.results_per_scraper()
+    failures = context.repo.scraper_errors(signature=cache.error_signature)
+
+    packages = {}
+    if args.get("includePackages", True):
+        for package in context.client.installed_scraper_packages():
+            packages[package.get("package_id")] = package
+
+    for row in rows:
+        row["results"] = results.get(row["id"], 0)
+        attempts = row["attempts"] or 0
+        row["match_rate"] = (float(row["matches"]) / attempts) if attempts else None
+        # Attempts that produced nothing, weighted by how long they took: a slow
+        # scraper that never matches is worse than a fast one that never matches.
+        failed = attempts - (row["matches"] or 0)
+        row["waste"] = failed * ((row["avg_ms"] or 0) / 1000.0)
+        row["enabled"] = context.config.is_enabled(row["id"], row["name"])
+        row["priority"] = context.config.priority(row["id"])
+        row["protected"] = row["id"].lower() in settings.NEVER_INVOKE
+
+        # How it fails, not just how often: a 404 on a query URL means the scraper has
+        # nothing to do with your library, a non-zero exit means it is broken, and a
+        # timeout means the site is slow. Those want three different decisions.
+        failure = failures.get(row["id"])
+        row["top_error"] = (failure or {}).get("top")
+        row["last_error"] = (failure or {}).get("last")
+        row["error_kinds"] = {"permanent": (failure or {}).get("permanent") or 0,
+                              "transient": (failure or {}).get("transient") or 0}
+        row["error_groups"] = (failure or {}).get("groups") or []
+        row["distinct_errors"] = (failure or {}).get("distinct") or 0
+
+        package = packages.get(row["id"])
+        row["package"] = package
+        if row["protected"]:
+            row["uninstallable"] = False
+            row["uninstall_blocked"] = (
+                "this is ScrapeDiscovery's own entry point - uninstalling it from here "
+                "would be removing the thing you are using")
+        elif package:
+            row["uninstallable"] = True
+            row["uninstall_blocked"] = None
+        else:
+            row["uninstallable"] = False
+            row["uninstall_blocked"] = (
+                "not installed from a source - Stash can only uninstall packages it "
+                "installed, so this one has to be removed by hand" if packages
+                else "package list unavailable")
+
+    sort = str(args.get("sort") or "attempts")
+    if sort not in SCRAPER_SORTS:
+        sort = "attempts"
+    descending = str(args.get("direction") or "desc").lower() != "asc"
+
+    def key(row):
+        value = row[sort]
+        return value if isinstance(value, (int, float)) else str(value).lower()
+
+    # Rows with no value for the sorted column go last either way, rather than
+    # pretending to be the best or the worst: a scraper that has never been tried has
+    # no average response time, and that is not the same as being instant.
+    known = sorted([row for row in rows if row[sort] is not None], key=key,
+                   reverse=descending)
+    unknown = sorted([row for row in rows if row[sort] is None],
+                     key=lambda row: row["id"].lower())
+    rows = known + unknown
+
+    limit = max(1, min(int(args.get("limit") or 500), 2000))
+    return {
+        "scrapers": rows[:limit],
+        "total": len(rows),
+        "shown": min(limit, len(rows)),
+        "totals": {
+            "attempts": sum(row["attempts"] for row in rows),
+            "matches": sum(row["matches"] for row in rows),
+            "no_matches": sum(row["no_matches"] for row in rows),
+            "errors": sum(row["errors"] for row in rows),
+            "timeouts": sum(row["timeouts"] for row in rows),
+            "tried": sum(1 for row in rows if row["attempts"]),
+            "untried": sum(1 for row in rows if not row["attempts"]),
+        },
+        "sorts": list(SCRAPER_SORTS),
+        "packages_known": bool(packages),
+    }
+
+
+def op_scraper_uninstall(context, args):
+    """Uninstall one scraper package, once the caller has said so explicitly.
+
+    Deliberately awkward: `confirm` must carry the scraper's own id. This deletes files
+    from the Stash host, so a mis-click on a table of 780 rows must not be enough, and
+    the page has to have loaded the row it claims to be acting on.
+
+    The scraper's history is kept. It is the record of what was tried and why it was not
+    worth keeping, and its results may be part of another candidate's evidence.
+    """
+    scraper_id = str(args.get("scraper_id") or "").strip()
+    if not scraper_id:
+        return {"ok": False, "error": "scraper_id is required"}
+    if str(args.get("confirm") or "") != scraper_id:
+        return {"ok": False,
+                "error": "not confirmed: pass confirm equal to the scraper id to "
+                         "uninstall it"}
+    if scraper_id.lower() in settings.NEVER_INVOKE:
+        return {"ok": False,
+                "error": "refusing to uninstall ScrapeDiscovery's own entry point"}
+
+    known = context.repo.known_scrapers().get(scraper_id)
+    package = None
+    for candidate in context.client.installed_scraper_packages():
+        if candidate.get("package_id") == scraper_id:
+            package = candidate
+            break
+    if not package:
+        return {"ok": False,
+                "error": "no installed package with id %r - Stash can only uninstall "
+                         "what it installed from a source" % scraper_id}
+
+    job_id = context.client.uninstall_scraper_package(
+        package["package_id"], package["sourceURL"])
+    removed = context.repo.forget_scraper(scraper_id)
+    logs.warning("uninstalling scraper package %s (%s) from %s - job %s"
+                 % (package["package_id"], package.get("name") or "?",
+                    package["sourceURL"], job_id))
+    return {
+        "job_id": job_id,
+        "package": package,
+        "scraper": known,
+        "forgotten": bool(removed),
+        "message": "uninstall queued as job %s. Its history is kept; reload scrapers "
+                   "once the job finishes." % job_id,
+    }
+
+
+def op_scrapers_reload(context, args):
+    """Make Stash re-read the scrapers directory after an uninstall."""
+    return {"reloaded": context.client.reload_scrapers()}
+
+
 def op_consensus(context, args):
     """The consensus for a scene, for the UI to show alongside the raw answers."""
     scene_id = int(args.get("scene_id") or 0)
@@ -502,4 +658,7 @@ HANDLERS = {
     "scan.cancel": op_scan_cancel,
     "scraper.entry": op_scraper_entry,
     "consensus.get": op_consensus,
+    "scrapers.stats": op_scraper_stats,
+    "scrapers.uninstall": op_scraper_uninstall,
+    "scrapers.reload": op_scrapers_reload,
 }

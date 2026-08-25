@@ -193,6 +193,40 @@ class Client:
         general = ((data or {}).get("configuration") or {}).get("general") or {}
         return [box for box in (general.get("stashBoxes") or []) if box.get("endpoint")]
 
+    def installed_scraper_packages(self):
+        """The scraper packages Stash installed from a source.
+
+        A package id equals the scraper id in practice - verified on a live instance,
+        779 of 780 scene scrapers matched, the exception being the built-in autotagger,
+        which is not a package and cannot be uninstalled. The mapping is still built by
+        lookup rather than assumed, so a scraper without a package is simply reported as
+        not uninstallable.
+        """
+        data = self.try_call(
+            "query { installedPackages(type: Scraper)"
+            " { package_id name version sourceURL } }", timeout=60)
+        return (data or {}).get("installedPackages") or []
+
+    def uninstall_scraper_package(self, package_id, source_url):
+        """Remove one scraper package. Returns the job id Stash runs it under.
+
+        Destructive, and asynchronous: Stash deletes the files the package installed
+        (`pkg/pkg/manager.go`) in a job, so the caller has a job to watch and the
+        scraper stays loaded until `reload_scrapers` runs.
+        """
+        data = self.call(
+            "mutation($packages: [PackageSpecInput!]!) {"
+            " uninstallPackages(type: Scraper, packages: $packages) }",
+            {"packages": [{"id": str(package_id), "sourceURL": str(source_url)}]},
+            timeout=60,
+        )
+        return data.get("uninstallPackages")
+
+    def reload_scrapers(self):
+        """Make Stash re-read the scrapers directory, so a removed one disappears."""
+        data = self.try_call("mutation { reloadScrapers }", timeout=60)
+        return bool((data or {}).get("reloadScrapers"))
+
     # -- scenes ------------------------------------------------------------
 
     def find_scene(self, scene_id):

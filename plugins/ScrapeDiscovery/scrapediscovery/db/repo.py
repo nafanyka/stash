@@ -878,6 +878,112 @@ class Repo:
             "SELECT * FROM scraper_stats ORDER BY attempts DESC LIMIT ?", (int(limit),)
         )
 
+    def scraper_stats_full(self, include_untried=True):
+        """Every scraper we know of, with its record, whether it has one or not.
+
+        A LEFT JOIN rather than reading the view alone: the view only has rows for
+        scrapers that have been attempted, and "installed, never tried" is exactly the
+        state a user wants to see next to "tried 300 times, matched twice".
+        """
+        rows = self._all(
+            "SELECT s.id, s.name, s.kinds_json, s.url_patterns_json,"
+            " s.first_seen, s.last_seen,"
+            " COALESCE(st.attempts, 0)   AS attempts,"
+            " COALESCE(st.matches, 0)    AS matches,"
+            " COALESCE(st.no_matches, 0) AS no_matches,"
+            " COALESCE(st.errors, 0)     AS errors,"
+            " COALESCE(st.timeouts, 0)   AS timeouts,"
+            " st.avg_ms                  AS avg_ms,"
+            " st.last_attempt_at         AS last_attempt_at"
+            " FROM scrapers s LEFT JOIN scraper_stats st ON st.scraper_id = s.id"
+            " ORDER BY COALESCE(st.attempts, 0) DESC, s.id"
+        )
+        out = []
+        for row in rows:
+            if not include_untried and not row["attempts"]:
+                continue
+            row["kinds"] = _loads(row.pop("kinds_json"), [])
+            row["url_patterns"] = _loads(row.pop("url_patterns_json"), [])
+            row["results"] = 0
+            out.append(row)
+        return out
+
+    def scraper_errors(self, signature=None, max_groups=20000):
+        """Per scraper: how it typically fails, and what it said most recently.
+
+        Aggregated in SQL down to distinct messages first, then folded together by
+        `signature` in Python - the messages embed the URL that was fetched, so grouping
+        on the raw text would report one recurring fault as a hundred separate ones.
+        There are far fewer distinct messages than attempts, so this stays cheap.
+        """
+        signature = signature or (lambda text: str(text or "")[:180])
+        rows = self._all(
+            "SELECT scraper_id, error, error_kind, COUNT(*) AS n,"
+            " MAX(finished_at) AS last_at"
+            " FROM attempts"
+            " WHERE scraper_id IS NOT NULL AND error IS NOT NULL AND error != ''"
+            "   AND from_cache = 0"
+            " GROUP BY scraper_id, error, error_kind"
+            " ORDER BY n DESC LIMIT ?",
+            (int(max_groups),),
+        )
+
+        out = {}
+        for row in rows:
+            entry = out.setdefault(row["scraper_id"], {
+                "groups": {}, "total": 0, "last": None, "permanent": 0, "transient": 0,
+            })
+            key = signature(row["error"])
+            group = entry["groups"].setdefault(key, {
+                "signature": key, "count": 0, "kind": row["error_kind"],
+                "example": row["error"], "last_at": row["last_at"],
+            })
+            group["count"] += row["n"]
+            if (row["last_at"] or "") > (group["last_at"] or ""):
+                group["last_at"] = row["last_at"]
+                group["example"] = row["error"]
+            entry["total"] += row["n"]
+            if row["error_kind"] == "permanent":
+                entry["permanent"] += row["n"]
+            else:
+                entry["transient"] += row["n"]
+            if entry["last"] is None or (row["last_at"] or "") > (entry["last"]["at"] or ""):
+                entry["last"] = {"at": row["last_at"], "message": row["error"],
+                                 "kind": row["error_kind"]}
+
+        for entry in out.values():
+            groups = sorted(entry.pop("groups").values(),
+                            key=lambda one: (-one["count"], one["signature"]))
+            entry["top"] = groups[0] if groups else None
+            entry["distinct"] = len(groups)
+            entry["groups"] = groups[:5]
+        return out
+
+    def results_per_scraper(self):
+        """scraper id -> how many stored results it produced.
+
+        Not the same as its match count: one name search can answer with a dozen
+        results, and a match is one attempt.
+        """
+        return {
+            row["scraper_id"]: row["n"]
+            for row in self._all(
+                "SELECT a.scraper_id, COUNT(r.id) AS n FROM attempts a"
+                " JOIN results r ON r.attempt_id = a.id"
+                " WHERE a.scraper_id IS NOT NULL GROUP BY a.scraper_id"
+            )
+        }
+
+    def forget_scraper(self, scraper_id):
+        """Drop a scraper from the registry, keeping its history.
+
+        Called after an uninstall. The attempts stay: they are the record of what was
+        tried and why it was not worth keeping, and deleting them would also delete the
+        results other scrapers' candidates may be correlated against.
+        """
+        cursor = self._write("DELETE FROM scrapers WHERE id = ?", (str(scraper_id),))
+        return cursor.rowcount or 0
+
     def counts(self) -> dict:
         tables = ("scans", "attempts", "results", "discovered_urls", "candidates",
                   "applications", "scene_state", "scrapers", "blobs")
