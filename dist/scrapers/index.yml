@@ -9,7 +9,7 @@
   version: 1-5099199
   date: '2026-08-28 11:39:20'
   path: FastDiscovery.zip
-  sha256: 5076e480e80a5106becfbcb061002b4e342b2a37abff7b2be8d9a4b9b4f3530c
+  sha256: c9d743dc46dc637def0c9403270c8bb6804b3070efbe7447fbc65fb74a40ea39
   requires: []
 - id: ScrapeAll
   name: ScrapeAll
@@ -19,7 +19,7 @@
   version: 4-ef155bc
   date: '2026-08-23 14:45:53'
   path: ScrapeAll.zip
-  sha256: 1320dc418597a20d3670e83639dcc549ff82d2680c507cbec30809a9df457ec9
+  sha256: 66f8f3abfd64d2e52e61910f78f0c8c840582b8c700243342639993d724953d2
   requires: []
 - id: ScrapeDiscovery
   name: ScrapeDiscovery
@@ -30,5 +30,5 @@
   version: 1-e89bf72
   date: '2026-08-24 21:23:53'
   path: ScrapeDiscovery.zip
-  sha256: d6b0ec36e05f195dca6da2dc608b37d4872462d2c8592f34161a8f58c2a81568
+  sha256: 1fb498882d0cb57231406f9bfdcbcb3c379442484d9e623244b64ff5ec89c32e
   requires: []

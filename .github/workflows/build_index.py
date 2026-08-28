@@ -26,6 +26,18 @@ SHARED = ROOT / "common" / "python"
 KINDS = ("plugins", "scrapers")
 SKIP = {".git", "__pycache__", ".gitkeep", ".DS_Store"}
 
+# Zip entries are stamped with this instead of each file's mtime, so a rebuild of
+# unchanged content produces a byte-identical archive.
+#
+# Not cosmetic. Every entry in the index carries the sha256 of its zip, and Stash
+# refuses a package whose bytes do not hash to it. With mtimes in the archive the sha
+# changed on every single build - a fresh clone, a touched file, a sync client - so the
+# index and the zip were only ever valid as an atomic pair, and any skew between them
+# (a partial push, or a CDN caching the two files at different moments) broke installs
+# with a hash mismatch. Fixed timestamps mean the sha only moves when the content does.
+FIXED_DATE = (1980, 1, 1, 0, 0, 0)
+FIXED_MODE = 0o644 << 16
+
 
 def git_meta(path: Path) -> tuple[str, str]:
     """Short sha and commit date of the last change touching `path`."""
@@ -104,6 +116,18 @@ def shared_files(name: str):
             yield module, module.name
 
 
+def add_file(archive: zipfile.ZipFile, abs_path: Path, rel: str) -> None:
+    """Add one file with a fixed timestamp and mode, so the archive is reproducible.
+
+    `ZipFile.write` would copy the file's mtime into the entry header, which is what
+    made every rebuild produce a different sha256 (see FIXED_DATE).
+    """
+    info = zipfile.ZipInfo(rel, date_time=FIXED_DATE)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = FIXED_MODE
+    archive.writestr(info, abs_path.read_bytes())
+
+
 def build(kind: str) -> list[dict]:
     src, out = ROOT / kind, DIST / kind
     out.mkdir(parents=True, exist_ok=True)
@@ -123,10 +147,10 @@ def build(kind: str) -> list[dict]:
         bundled = shared_used_by(folder)
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
             for abs_path, rel in files_of(folder):
-                z.write(abs_path, rel)
+                add_file(z, abs_path, rel)
             for name in bundled:
                 for abs_path, rel in shared_files(name):
-                    z.write(abs_path, rel)
+                    add_file(z, abs_path, rel)
 
         entries.append({
             "id": folder.name,
