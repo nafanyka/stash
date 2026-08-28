@@ -256,13 +256,51 @@ def op_review_get(context, args):
         return {"ok": False, "error": "scene %s no longer exists" % run["scene_id"]}
 
     review = merge_module.build(context.repo, run, scene, context.schema_fields(),
-                                context.client)
+                                context.client, run.get("rejected_sources"))
     review["summary"] = merge_module.summarise(review)
     review["default_selection"] = merge_module.default_selection(review)
-    # A selection the user saved earlier wins over the defaults, so a review survives
-    # a page reload without losing the choices already made.
-    review["selection"] = run.get("selection") or review["default_selection"]
+    # A selection the user saved earlier wins over the defaults, so a review survives a
+    # page reload without losing the choices already made - minus anything a rejected
+    # source was the only one offering.
+    saved = run.get("selection")
+    review["selection"] = (merge_module.sanitise_selection(review, saved) if saved
+                           else review["default_selection"])
     return review
+
+
+def op_reject_source(context, args):
+    """Strike a source out of the review, or put it back.
+
+    Stored on the run rather than held in the page: the matrix, the defaults and Apply
+    all have to agree about which sources count, and the only way to guarantee that is
+    for all three to read it from the same place.
+    """
+    run = _run(context, args)
+    if not run or run["purged"]:
+        return {"ok": False, "error": "no results to review"}
+    try:
+        source_id = int(args.get("source_id"))
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "source_id is required"}
+
+    known = {source["id"] for source in context.repo.sources_of(run["id"])}
+    if source_id not in known:
+        return {"ok": False, "error": "this run has no source %s" % source_id}
+
+    rejected = set(run.get("rejected_sources") or [])
+    if args.get("rejected", True):
+        rejected.add(source_id)
+    else:
+        rejected.discard(source_id)
+    context.repo.set_rejected_sources(run["id"], rejected)
+
+    # The selection is re-checked against the matrix the change produced, so a tick left
+    # pointing at a value only the rejected source offered does not survive as a
+    # dangling id that Apply would refuse.
+    refreshed = op_review_get(context, {"run_id": run["id"]})
+    if refreshed.get("ok") is not False and refreshed.get("selection") is not None:
+        context.repo.set_selection(run["id"], refreshed["selection"])
+    return refreshed
 
 
 def op_review_save(context, args):
@@ -303,7 +341,8 @@ def op_apply_preview(context, args):
     if not scene:
         return {"ok": False, "error": "scene %s no longer exists" % run["scene_id"]}
     return apply_module.preview(context.repo, context.client, run, scene,
-                                args.get("selection"), context.schema_fields())
+                                args.get("selection"), context.schema_fields(),
+                                rejected=run.get("rejected_sources"))
 
 
 def op_apply_commit(context, args):
@@ -316,7 +355,8 @@ def op_apply_commit(context, args):
     try:
         return apply_module.commit(context.repo, context.client, run, scene,
                                    args.get("selection"), context.schema_fields(),
-                                   expected_updated_at=args.get("expected_updated_at"))
+                                   expected_updated_at=args.get("expected_updated_at"),
+                                   rejected=run.get("rejected_sources"))
     except apply_module.ApplyError as exc:
         # The run stays reviewable and the payload stays on disk, so Apply can simply
         # be pressed again once whatever went wrong is dealt with (requirement 20).
@@ -440,6 +480,7 @@ HANDLERS = {
     "run.delete": op_run_delete,
     "review.get": op_review_get,
     "review.save": op_review_save,
+    "review.reject_source": op_reject_source,
     "review.image": op_review_image,
     "apply.preview": op_apply_preview,
     "apply.commit": op_apply_commit,

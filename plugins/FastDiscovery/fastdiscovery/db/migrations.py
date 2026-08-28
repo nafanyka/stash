@@ -164,7 +164,17 @@ _INITIAL = [
     "CREATE INDEX idx_applications_scene ON applications(scene_id, applied_at DESC)",
 ]
 
-MIGRATIONS = [_INITIAL]
+# 2 - a reviewer can strike out a whole source.
+#
+# A source that got the wrong scene is wrong about every field at once, and unticking
+# its values one row at a time is both tedious and easy to do incompletely. Rejecting it
+# is stored on the run rather than kept in the page, so it survives a reload and so that
+# Apply resolves the selection against exactly the matrix the reviewer was looking at.
+_REJECTED_SOURCES = [
+    "ALTER TABLE runs ADD COLUMN rejected_sources_json TEXT",
+]
+
+MIGRATIONS = [_INITIAL, _REJECTED_SOURCES]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

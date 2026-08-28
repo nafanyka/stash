@@ -56,6 +56,12 @@ them when you want to.
 Under *Sources* you get every source that was asked and what it said, including the ones
 that failed. A source failing never fails a run.
 
+If one of them clearly matched the wrong scene, tick **reject** next to it. Everything it
+said drops out of every row at once - values, votes, performers, covers - and a row it was
+the only source for disappears. Its column stays in the table, dimmed, so you can untick
+it and get it all back. The choice is remembered until you decide, and Apply writes
+against exactly the table you were looking at.
+
 **Apply** writes your selection in a single `sceneUpdate`, creates only the candidates you
 ticked, and then deletes the results. **Reject** deletes them without touching the scene.
 **Rescan** throws away an undecided run and starts again, after asking.

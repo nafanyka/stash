@@ -60,18 +60,29 @@ def column_id(source_id, ordinal=0):
     return "s%s_%s" % (source_id, ordinal)
 
 
-def build(repo, run, scene, schema_fields=None, client=None):
+def build(repo, run, scene, schema_fields=None, client=None, rejected=None):
     """The whole review payload for one run.
 
     `scene` is the scene as Stash has it *now*, not as the run recorded it: the review
     exists to be acted on later, possibly much later, and comparing against a stale
     snapshot would offer to "keep" a value that is no longer there.
+
+    `rejected` is the set of source ids the reviewer struck out. A source that matched
+    the wrong scene is wrong about every field at once, so rejecting it drops all of its
+    values from every row - and with them their votes, their entities and their images -
+    rather than leaving the reviewer to untick twenty things. Its column stays in the
+    table, greyed out, because a decision you cannot see is one you cannot take back.
     """
+    rejected = {int(one) for one in (rejected or [])}
     snapshot = fields.scene_snapshot(scene)
     sources = repo.sources_of(run["id"])
     results = repo.results_of(run["id"])
 
+    # The scene itself can never be rejected: dropping what the library already has is
+    # what unticking a value does, and it is the one thing every other column is
+    # compared against.
     columns = [{"id": CURRENT, "type": CURRENT, "name": "Current", "source_id": None,
+                "rejected": False,
                 "url": None, "endpoint": None, "depth": 0, "attribution": "CERTAIN",
                 "parent": None, "scraper_id": None, "result_ordinal": 0}]
     by_source = {source["id"]: source for source in sources}
@@ -79,6 +90,7 @@ def build(repo, run, scene, schema_fields=None, client=None):
         source = by_source.get(result["source_id"], {})
         columns.append({
             "id": column_id(result["source_id"], result["ordinal"]),
+            "rejected": result["source_id"] in rejected,
             "type": result["source_type"],
             "name": _column_name(source, result),
             "source_id": result["source_id"],
@@ -96,6 +108,8 @@ def build(repo, run, scene, schema_fields=None, client=None):
     payloads = {CURRENT: snapshot["values"]}
     endpoints = {CURRENT: None}
     for result in results:
+        if result["source_id"] in rejected:
+            continue          # its values take no part in any row
         key = column_id(result["source_id"], result["ordinal"])
         payloads[key] = result["raw"]
         endpoints[key] = result["source_endpoint"]
@@ -113,7 +127,9 @@ def build(repo, run, scene, schema_fields=None, client=None):
                   "filename": snapshot["filename"], "screenshot": snapshot["screenshot"],
                   "updated_at": snapshot["updated_at"]},
         "columns": columns,
-        "sources": [_source_summary(source) for source in sources],
+        "sources": [_source_summary(source, source["id"] in rejected)
+                    for source in sources],
+        "rejected_sources": sorted(rejected),
         "rows": rows,
         "urls_graph": _graph(repo, run, by_source, results),
     }
@@ -148,8 +164,9 @@ def _parent_column(result, by_source, results):
     return None
 
 
-def _source_summary(source):
+def _source_summary(source, rejected=False):
     return {
+        "rejected": bool(rejected),
         "id": source["id"], "type": source["type"], "name": source["name"],
         "method": source["method"], "status": source["status"],
         "error": source["error"], "url": source["url"], "endpoint": source["endpoint"],
@@ -370,7 +387,7 @@ def _image_row(field, columns, payloads, snapshot, results):
     for column in columns:
         if column["id"] == CURRENT:
             continue
-        result = by_result.get(column.get("result_id"))
+        result = None if column.get("rejected") else by_result.get(column.get("result_id"))
         if result is None:
             cells[column["id"]] = None
             continue
@@ -786,11 +803,39 @@ def default_selection(review):
     return {row["field"]: row["default"] for row in review["rows"] if row["writable"]}
 
 
+def sanitise_selection(review, selection):
+    """A selection kept honest against the matrix it is about to be applied to.
+
+    Rejecting a source removes whatever only it said, so a tick can be left pointing at
+    an option that is no longer on offer. Dropping those quietly is right - the user
+    took the value away by taking its source away - but a scalar left with nothing
+    selected would silently write nothing, so it falls back to that row's default.
+    """
+    selection = selection if isinstance(selection, dict) else {}
+    out = {}
+    for row in review["rows"]:
+        if row["field"] not in selection:
+            continue
+        known = {value["id"] for value in row["values"]}
+        for value in row["values"]:
+            known.update(value.get("merged_ids") or [])
+        chosen = selection[row["field"]]
+        if isinstance(chosen, list):
+            out[row["field"]] = [one for one in chosen if one in known]
+        elif chosen in known:
+            out[row["field"]] = chosen
+        else:
+            out[row["field"]] = row["default"] if not isinstance(row["default"], list)                 else []
+    return out
+
+
 def summarise(review):
     """The couple of numbers the scene page and the results list show."""
     rows = review["rows"]
     return {
-        "columns": len(review["columns"]),
+        "columns": len([one for one in review["columns"] if not one.get("rejected")]),
+        "rejected_columns": len([one for one in review["columns"]
+                                 if one.get("rejected")]),
         "sources": len(review["sources"]),
         "failed_sources": len([one for one in review["sources"]
                                if one["status"] in (R.S_ERROR, R.S_TIMEOUT)]),

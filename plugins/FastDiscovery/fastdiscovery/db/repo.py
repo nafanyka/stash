@@ -199,6 +199,14 @@ class Repo:
                 "UPDATE runs SET status = ?, error = ?, decided_at = ? WHERE id = ?",
                 (str(status), error, now(), int(run_id)))
 
+    def set_rejected_sources(self, run_id, source_ids):
+        """Which of this run's sources the reviewer struck out."""
+        with self.connection:
+            self.connection.execute(
+                "UPDATE runs SET rejected_sources_json = ? WHERE id = ?",
+                (_dumps(sorted({int(one) for one in (source_ids or [])})),
+                 int(run_id)))
+
     def set_selection(self, run_id, selection):
         with self.connection:
             self.connection.execute("UPDATE runs SET selection_json = ? WHERE id = ?",
@@ -276,6 +284,7 @@ class Repo:
         run["config"] = _loads(run.pop("config_json", None), {})
         run["scene_snapshot"] = _loads(run.pop("scene_snapshot_json", None), {})
         run["selection"] = _loads(run.pop("selection_json", None), None)
+        run["rejected_sources"] = _loads(run.pop("rejected_sources_json", None), []) or []
         run["progress"] = _loads(run.pop("progress_json", None), {})
         run["purged"] = bool(run.get("purged"))
         run["reviewable"] = run["status"] in REVIEWABLE and not run["purged"]
@@ -298,8 +307,8 @@ class Repo:
             self.connection.execute("DELETE FROM sources WHERE run_id = ?", (run_id,))
             self.connection.execute(
                 "UPDATE runs SET purged = 1, scene_snapshot_json = NULL,"
-                " selection_json = NULL, progress_json = NULL, config_json = NULL"
-                " WHERE id = ?", (run_id,))
+                " selection_json = NULL, progress_json = NULL, config_json = NULL,"
+                " rejected_sources_json = NULL WHERE id = ?", (run_id,))
         return self.purge_orphan_images()
 
     def delete_run(self, run_id):

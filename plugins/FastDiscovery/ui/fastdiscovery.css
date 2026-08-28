@@ -593,3 +593,54 @@
   justify-content: center;
   margin-top: 1.25rem;
 }
+
+/* ----------------------------------------------------------- rejected sources */
+
+.fd-sources-note {
+  margin: 0.35rem 0;
+  font-size: 0.88rem;
+  color: var(--text-muted, #868e96);
+}
+
+.fd-reject {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  width: 4.5rem;
+  margin: 0;
+  font-weight: normal;
+  font-size: 0.78rem;
+  color: var(--text-muted, #868e96);
+  cursor: pointer;
+}
+
+/* Keeps the icons and names of sources that cannot be rejected lined up with the ones
+   that can, so the list still reads as one column of statuses. */
+.fd-reject-absent {
+  cursor: default;
+}
+
+.fd-source-rejected .fd-source-name,
+.fd-source-rejected .fd-source-url {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+/* A rejected column is dimmed rather than removed: a decision you cannot see is one
+   you cannot take back. */
+.fd-column-rejected {
+  opacity: 0.35;
+  background: repeating-linear-gradient(
+    135deg,
+    transparent,
+    transparent 6px,
+    rgba(128, 128, 128, 0.12) 6px,
+    rgba(128, 128, 128, 0.12) 12px
+  );
+}
+
+.fd-th-rejected {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--danger, #dc3545);
+}

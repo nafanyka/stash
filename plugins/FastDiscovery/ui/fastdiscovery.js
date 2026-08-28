@@ -193,7 +193,12 @@
       [op, serialized, nonce[0], skip]
     );
 
-    return { loading: value.loading, data: value.data, error: value.error, reload: reload };
+    var replace = React.useCallback(function (data) {
+      setValue({ loading: false, data: data, error: null });
+    }, []);
+
+    return { loading: value.loading, data: value.data, error: value.error,
+             reload: reload, replace: replace };
   }
 
   /* ------------------------------------------------------------------- helpers */
@@ -354,8 +359,9 @@
       return one.status === "ERROR" || one.status === "TIMEOUT" || one.status === "UNREACHABLE";
     });
     var shown = collapsed[0] ? sources.filter(function (one) {
-      return one.status !== "NO_RESULT" && one.status !== "SKIPPED";
+      return one.status !== "NO_RESULT" && one.status !== "SKIPPED" || one.rejected;
     }) : sources;
+    var rejected = sources.filter(function (one) { return one.rejected; });
 
     return h(
       "div",
@@ -380,13 +386,46 @@
             failed.length + " source(s) did not answer. Everything else is below."
           )
         : null,
+      rejected.length
+        ? h(
+            "div",
+            { className: "fd-sources-note" },
+            rejected.length + " source(s) rejected - nothing they said counts, in any " +
+              "row. Untick to bring one back."
+          )
+        : null,
       h(
         "ul",
         { className: "fd-source-list" },
         shown.map(function (source) {
+          var rejectable = props.onReject && source.type !== "current" &&
+            source.result_count > 0;
           return h(
             "li",
-            { key: source.id, className: cx("fd-source", "fd-source-" + source.status) },
+            {
+              key: source.id,
+              className: cx("fd-source", "fd-source-" + source.status,
+                            source.rejected && "fd-source-rejected")
+            },
+            rejectable
+              ? h(
+                  "label",
+                  {
+                    className: "fd-reject",
+                    title: source.rejected
+                      ? "Rejected: nothing this source said is counted. Untick to " +
+                        "bring it back."
+                      : "Reject this source - drops everything it said from every row"
+                  },
+                  h("input", {
+                    type: "checkbox",
+                    checked: !!source.rejected,
+                    disabled: !!props.busy,
+                    onChange: function () { props.onReject(source, !source.rejected); }
+                  }),
+                  h("span", null, "reject")
+                )
+              : h("span", { className: "fd-reject fd-reject-absent" }),
             h("span", { className: "fd-source-icon" }, SOURCE_ICON[source.status] || "?"),
             h(
               "span",
@@ -764,11 +803,15 @@
                   className: cx(
                     "fd-th",
                     column.id === "current" && "fd-th-current",
-                    column.type === "stashbox" && "fd-th-box"
+                    column.type === "stashbox" && "fd-th-box",
+                    column.rejected && "fd-column-rejected"
                   ),
                   title: column.url || column.endpoint || column.name
                 },
                 h("div", { className: "fd-th-name" }, column.name),
+                column.rejected
+                  ? h("div", { className: "fd-th-sub fd-th-rejected" }, "rejected")
+                  : null,
                 column.url
                   ? h("div", { className: "fd-th-sub" }, shortUrl(column.url))
                   : column.endpoint
@@ -791,6 +834,11 @@
             var isOpen = expanded[0][row.field] !== false;
 
             var cells = review.columns.map(function (column) {
+              if (column.rejected) {
+                // Shown, so the choice is visible and reversible; empty, because
+                // nothing this source said counts any more.
+                return h("td", { key: column.id, className: "fd-cell fd-column-rejected" });
+              }
               return h(ValueCell, {
                 key: column.id,
                 row: row,
@@ -964,6 +1012,33 @@
       selection[1](next);
     }
 
+    function rejectSource(source, rejected) {
+      busy[1]("reject");
+      problem[1](null);
+      callOp("review.reject_source", {
+        run_id: data.run.id,
+        source_id: source.id,
+        rejected: rejected
+      }).then(
+        function (fresh) {
+          busy[1](null);
+          // The whole matrix is rebuilt without that source, so the page takes the new
+          // one rather than trying to patch the old one.
+          review.replace(fresh);
+          selection[1](JSON.parse(JSON.stringify(fresh.selection || {})));
+          toaster.success(
+            (rejected ? "Rejected " : "Restored ") + source.name +
+              (rejected ? " - nothing it said is counted." : " - its values are back.")
+          );
+        },
+        function (failure) {
+          busy[1](null);
+          problem[1](failure.message);
+          toaster.failure(failure.message);
+        }
+      );
+    }
+
     function decide(op, extra) {
       busy[1](op);
       problem[1](null);
@@ -1038,7 +1113,11 @@
       data.run.stop_reason
         ? h("div", { className: "fd-note" }, "Stopped early: " + data.run.stop_reason)
         : null,
-      h(SourceList, { sources: data.sources }),
+      h(SourceList, {
+        sources: data.sources,
+        busy: busy[0] === "reject",
+        onReject: data.run.reviewable ? rejectSource : null
+      }),
       data.rows.length
         ? h(MergeTable, {
             review: data,

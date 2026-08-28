@@ -33,9 +33,9 @@ class ApplyError(RuntimeError):
     """The selection could not be turned into a write. Nothing was changed."""
 
 
-def preview(repo, client, run, scene, selection, schema_fields=None):
+def preview(repo, client, run, scene, selection, schema_fields=None, rejected=None):
     """What Apply would do, without doing any of it."""
-    review = merge_module.build(repo, run, scene, schema_fields, client)
+    review = merge_module.build(repo, run, scene, schema_fields, client, rejected)
     plan = _plan(review, selection)
     return {"changes": plan["changes"], "creates": plan["creates"],
             "unchanged": plan["unchanged"], "problems": plan["problems"],
@@ -43,9 +43,14 @@ def preview(repo, client, run, scene, selection, schema_fields=None):
 
 
 def commit(repo, client, run, scene, selection, schema_fields=None,
-           expected_updated_at=None):
-    """Create what was ticked, write the scene once, then drop the payload."""
-    review = merge_module.build(repo, run, scene, schema_fields, client)
+           expected_updated_at=None, rejected=None):
+    """Create what was ticked, write the scene once, then drop the payload.
+
+    `rejected` has to be the same set the review was shown with: it decides which
+    options exist at all, and applying against a different matrix than the one the
+    reviewer read would write something they never saw.
+    """
+    review = merge_module.build(repo, run, scene, schema_fields, client, rejected)
     live_stamp = review["scene"]["updated_at"]
     if expected_updated_at and live_stamp and str(expected_updated_at) != str(live_stamp):
         # Someone edited the scene between the review being rendered and Apply being
