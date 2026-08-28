@@ -114,3 +114,26 @@ def describe_error(exc) -> str:
     from . import logs
     text = str(exc).strip() or exc.__class__.__name__
     return logs.sanitise(" ".join(text.split()))[:600]
+
+
+def describe_origin(exc) -> str:
+    """Where an exception came from, as `module.py:line in function`, ours only.
+
+    A bug in FastDiscovery reaches the user as one line in Stash's log, and a message
+    like "unhashable type: 'list'" without a location is nearly unactionable. This adds
+    the innermost frames that belong to this package - not a full traceback, which
+    would put absolute server paths in the log for no extra information.
+    """
+    import os
+    import traceback
+
+    frames = []
+    for frame in traceback.extract_tb(exc.__traceback__):
+        name = os.path.basename(frame.filename)
+        if frame.filename.replace("\\", "/").find("/fastdiscovery/") < 0 \
+                and name != "FastDiscovery.py":
+            continue
+        frames.append("%s:%d in %s" % (name, frame.lineno, frame.name))
+    if not frames:
+        return ""
+    return " <- ".join(reversed(frames[-3:]))

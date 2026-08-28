@@ -204,3 +204,19 @@ class TestLogSafety:
         assert "sekrit" not in logs.sanitise("api_key: sekrit123")
         assert "sekrit" not in logs.sanitise("https://box/graphql?apikey=sekrit123")
         assert "Authorization" in logs.sanitise("Authorization: Bearer sekrit")
+
+
+class TestProgressProtocol:
+    """Stash parses a progress line with strconv.ParseFloat - nothing may precede it."""
+
+    def test_a_progress_line_carries_the_number_and_nothing_else(self, capsys):
+        from fastdiscovery import logs
+        logs.progress(0.5)
+        line = capsys.readouterr().err.rstrip("\n")
+        assert line.startswith("\x01p\x02")
+        assert float(line[3:]) == 0.5
+
+    def test_every_other_level_is_still_labelled(self, capsys):
+        from fastdiscovery import logs
+        logs.info("hello")
+        assert capsys.readouterr().err == "\x01i\x02[FastDiscovery] hello\n"

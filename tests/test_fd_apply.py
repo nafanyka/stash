@@ -261,3 +261,51 @@ class TestPreview:
         assert [change["field"] for change in plan["changes"]] == ["title", "performers"]
         assert [create["entity"]["name"] for create in plan["creates"]] == ["Somebody New"]
         assert client.updates == [] and client.created == []
+
+
+class TestSelectionSurvivesARebuild:
+    """A review is built to be shown, and built again when Apply resolves it.
+
+    Between the two, Stash's answer about an unmatched name can change, which reorders
+    the row and can even fold two options into one. A selection made against the first
+    build has to still mean the same thing against the second.
+    """
+
+    def test_an_option_id_does_not_depend_on_position(self, fd_repo, fd_config,
+                                                      fd_scene):
+        client = FakeStash(scene=fd_scene, responses={
+            STASHDB: scraped(title="One", performers=["Zoe Last", "Aaron First"])})
+        summary = discovery.Runner(client, fd_repo, fd_config).run(295)
+        run = fd_repo.run(summary["run_id"])
+
+        first = merge.build(fd_repo, run, fd_scene)
+        second = merge.build(fd_repo, run, fd_scene)
+        assert {entity["id"] for entity in row(first, "performers")["values"]} == \
+            {entity["id"] for entity in row(second, "performers")["values"]}
+        assert row(first, "title")["values"][0]["id"] == \
+            row(second, "title")["values"][0]["id"]
+
+    def test_a_tick_still_applies_after_two_options_turn_out_to_be_one(
+            self, fd_repo, fd_config, fd_scene):
+        # At review time Stash had not matched the scraped name, so it was a candidate
+        # alongside the tag already on the scene. By apply time the name lookup matches
+        # it, and the two become one option.
+        blind = FakeStash(scene=fd_scene,
+                          responses={STASHDB: scraped(tags=["Existing Tag"])})
+        summary = discovery.Runner(blind, fd_repo, fd_config).run(295)
+        run = fd_repo.run(summary["run_id"])
+
+        review = merge.build(fd_repo, run, fd_scene, client=blind)
+        candidate = [entity for entity in row(review, "tags")["values"]
+                     if not entity["existing"]][0]
+        ticked = [entity["id"] for entity in row(review, "tags")["values"]]
+
+        seeing = FakeStash(
+            scene=fd_scene, responses={STASHDB: scraped(tags=["Existing Tag"])},
+            entities={"tag": {"Existing Tag": [{"id": "3", "name": "Existing Tag"}]}})
+        result = apply_module.commit(fd_repo, seeing, run, fd_scene, {"tags": ticked})
+
+        # One tag, the one the library already had, and nothing created.
+        assert seeing.created == []
+        assert result["applied"] is False or seeing.updates[0]["tag_ids"] == ["3"]
+        assert candidate["id"] in ticked

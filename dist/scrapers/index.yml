@@ -6,8 +6,8 @@
     description: Entry point into the FastDiscovery plugin. Starts a run for the scene
       and always returns nothing, because FastDiscovery is reviewed before anything
       is written. Requires the FastDiscovery plugin.
-  version: 1-0000000
-  date: '1970-01-01 00:00:00'
+  version: 1-5099199
+  date: '2026-08-28 11:39:20'
   path: FastDiscovery.zip
   sha256: 5076e480e80a5106becfbcb061002b4e342b2a37abff7b2be8d9a4b9b4f3530c
   requires: []

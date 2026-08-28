@@ -111,9 +111,21 @@ def _plan(review, selection):
             continue           # untouched fields are left exactly as they are
         chosen = selection[row["field"]]
         by_id = {value["id"]: value for value in row["values"]}
+        # An entity that has since been recognised as one the library already has may
+        # have absorbed another option; a tick made before that still resolves.
+        for value in row["values"]:
+            for absorbed in value.get("merged_ids") or []:
+                by_id.setdefault(absorbed, value)
 
         if row["kind"] in (fields.SCALAR, fields.IMAGE, fields.ENTITY):
             if chosen is None:
+                continue
+            if not isinstance(chosen, str):
+                # A single-choice row takes one option id. Anything else is a bug
+                # somewhere above, and saying which field it was beats the TypeError
+                # that indexing with it would raise.
+                problems.append("%s: expected one option id, got %s"
+                                % (row["field"], type(chosen).__name__))
                 continue
             value = by_id.get(chosen)
             if value is None:
@@ -137,23 +149,37 @@ def _plan(review, selection):
             problems.append("%s: expected a list of choices" % row["field"])
             continue
         wanted = list(chosen)
+        malformed = [one for one in wanted if not isinstance(one, str)]
+        if malformed:
+            problems.append("%s: expected option ids, got %s"
+                            % (row["field"],
+                               ", ".join(sorted({type(one).__name__
+                                                 for one in malformed}))))
+            continue
         missing = [one for one in wanted if one not in by_id]
         if missing:
             problems.append("%s: no such option(s) %s"
                             % (row["field"], ", ".join(str(one) for one in missing)))
             continue
-        picked = [by_id[one] for one in wanted]
+        picked, seen_picked = [], set()
+        for one in wanted:
+            value = by_id[one]
+            if value["id"] in seen_picked:
+                continue       # two ids that turned out to be the same thing
+            seen_picked.add(value["id"])
+            picked.append(value)
         present = [value["id"] for value in row["values"]
                    if value.get("is_current") or value.get("on_scene")]
-        if sorted(wanted) == sorted(present):
+        if sorted({by_id[one]["id"] for one in wanted}) == sorted(present):
             unchanged.append(row["field"])
             continue
         added = [value for value in picked
                  if not (value.get("is_current") or value.get("on_scene"))]
-        removed = [by_id[one] for one in present if one not in wanted]
+        kept = {value["id"] for value in picked}
+        removed = [by_id[one] for one in present if one not in kept]
         changes.append({
             "field": row["field"], "kind": row["kind"],
-            "value_ids": wanted,
+            "value_ids": [value["id"] for value in picked],
             "added": [_display_of(row, value) for value in added],
             "removed": [_display_of(row, value) for value in removed],
         })

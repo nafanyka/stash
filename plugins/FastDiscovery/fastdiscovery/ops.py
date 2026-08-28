@@ -55,9 +55,14 @@ def dispatch(context, op, args):
     try:
         result = handler(context, args or {})
     except Exception as exc:  # an operation failing is the UI's message, not a crash
-        from .executor import describe_error
+        from .executor import describe_error, describe_origin
         message = describe_error(exc)
-        logs.error("operation %s failed: %s" % (op, message))
+        origin = describe_origin(exc)
+        # The location goes in the log rather than in the message the page shows: it is
+        # for whoever has to fix it, and one line of it beats a bare exception text that
+        # could have come from anywhere.
+        logs.error("operation %s failed: %s%s"
+                   % (op, message, (" [%s]" % origin) if origin else ""))
         return {"ok": False, "error": message}
     if isinstance(result, dict) and "ok" not in result:
         result["ok"] = True

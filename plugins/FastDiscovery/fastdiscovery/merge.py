@@ -23,10 +23,29 @@ rebuilt at any time and always reflects the current scene.
 
 from __future__ import annotations
 
+import hashlib
+
 from . import fields, urls as urls_module
 from .db import repo as R
 
 CURRENT = "current"
+
+
+def option_id(prefix, key):
+    """A stable id for one option, derived from what the option *is*.
+
+    Deliberately not a position. The review is rebuilt from the stored results twice -
+    once to show it, once when Apply resolves the selection against the live scene -
+    and between the two, an entity can move: the name lookup that decides whether a
+    candidate is really an existing record talks to Stash, and a scraper's answer that
+    was unmatched at review time can be matched at apply time. With positional ids,
+    that reshuffle would silently point a tick at a different performer. Hashing the
+    identity instead means an option keeps its id for as long as it is the same thing,
+    and an option that genuinely changed identity comes back as an unknown id, which
+    Apply refuses rather than guesses at.
+    """
+    digest = hashlib.sha1(str(key).encode("utf-8", "replace")).hexdigest()[:10]
+    return "%s_%s" % (prefix, digest)
 
 # How an entity was identified, best first. Only the first three are evidence; a name
 # on its own is a suggestion, and is never enough to merge two entities silently
@@ -184,7 +203,7 @@ def _scalar_row(field, columns, payloads):
         key = fields.scalar_key(field, raw)
         entry = index.get(key)
         if entry is None:
-            entry = {"id": "v%d" % len(values), "key": key, "display": display,
+            entry = {"id": option_id("v", key), "key": key, "display": display,
                      "raw": raw if not isinstance(raw, (dict, list)) else display,
                      "sources": []}
             index[key] = entry
@@ -238,7 +257,7 @@ def _url_row(field, columns, payloads):
                 continue
             entry = index.get(record["key"])
             if entry is None:
-                entry = {"id": "u%d" % len(values), "key": record["key"],
+                entry = {"id": option_id("u", record["key"]), "key": record["key"],
                          "display": record["url"], "raw": record["url"],
                          "host": record["host"], "sources": []}
                 index[record["key"]] = entry
@@ -287,7 +306,7 @@ def _stash_id_row(field, columns, payloads, endpoints, snapshot):
             key = "%s|%s" % (endpoint, stash_id)
             entry = index.get(key)
             if entry is None:
-                entry = {"id": "x%d" % len(values), "key": key,
+                entry = {"id": option_id("x", key), "key": key,
                          "display": "%s @ %s" % (stash_id, _short_endpoint(endpoint)),
                          "endpoint": endpoint, "stash_id": str(stash_id), "sources": []}
                 index[key] = entry
@@ -332,7 +351,7 @@ def _image_row(field, columns, payloads, snapshot, results):
     candidates, index, cells = [], {}, {}
 
     if snapshot.get("screenshot"):
-        entry = {"id": "i0", "key": "current", "kind": "scene",
+        entry = {"id": option_id("i", "current"), "key": "current", "kind": "scene",
                  "url": snapshot["screenshot"], "sha256": None, "sources": [CURRENT]}
         candidates.append(entry)
         index["current"] = entry
@@ -359,7 +378,7 @@ def _image_row(field, columns, payloads, snapshot, results):
             continue
         entry = index.get(key)
         if entry is None:
-            entry = {"id": "i%d" % len(candidates), "key": key, "kind": kind,
+            entry = {"id": option_id("i", key), "key": key, "kind": kind,
                      "url": url, "sha256": sha, "sources": []}
             index[key] = entry
             candidates.append(entry)
@@ -502,17 +521,17 @@ def _entity_row(field, columns, payloads, endpoints, snapshot, client):
     if not occurrences:
         return None
 
-    entities = [_entity(field, index, members)
-                for index, members in enumerate(_group_entities(occurrences))]
+    entities = [_entity(field, members)
+                for members in _group_entities(occurrences)]
     # Order matters: the name lookup can turn a candidate into an existing record,
     # which is priority-one evidence and can make two groups one, and the ids the
     # duplicate flag points at must be the final ones the UI will see.
     _link_by_name(field, entities, client)
     entities = _merge_by_stored_id(entities)
+    # Display order only. The ids were fixed by identity above and are not touched
+    # here, so a selection made before this row was last built still resolves.
     entities.sort(key=lambda one: (not one["on_scene"], not one["existing"],
                                    one["name"].casefold()))
-    for position, entity in enumerate(entities):
-        entity["id"] = "e%d" % position
     _flag_possible_duplicates(entities)
 
     cells = {}
@@ -539,7 +558,21 @@ def _entity_row(field, columns, payloads, endpoints, snapshot, client):
     }
 
 
-def _entity(field, index, members):
+def _entity_identity(members):
+    """The key an entity keeps for as long as it is the same entity.
+
+    Built only from the stored results and the scene - never from the live name lookup,
+    which can turn a candidate into an existing record between one build of the review
+    and the next. That is exactly the moment an id must not move.
+    """
+    strong = sorted({key for member in members for _kind, key in _identity_keys(member)})
+    if strong:
+        return "|".join(strong)
+    first = members[0]
+    return "name:%s|%s" % (first["canon"], fields.canon_text(first["disambiguation"]))
+
+
+def _entity(field, members):
     on_scene = any(member["on_scene"] for member in members)
     stored_id = next((member["stored_id"] for member in members
                       if member["stored_id"]), None)
@@ -572,7 +605,8 @@ def _entity(field, index, members):
         identity = BY_URL
 
     return {
-        "id": "e%d" % index,
+        "id": option_id("e", _entity_identity(members)),
+        "merged_ids": [],
         "name": name,
         "canon": members[0]["canon"],
         "kind": field.entity,
@@ -670,6 +704,10 @@ def _merge_by_stored_id(entities):
             by_stored_id[stored_id] = entity
             out.append(entity)
             continue
+        # The absorbed entity's id is remembered, so a tick made when the two were
+        # still separate still points at something after they became one.
+        twin["merged_ids"] = sorted(set(twin["merged_ids"] + entity["merged_ids"]
+                                        + [entity["id"]]))
         twin["on_scene"] = twin["on_scene"] or entity["on_scene"]
         twin["sources"] = sorted(set(twin["sources"]) | set(entity["sources"]))
         twin["aliases"] = sorted({name for name in twin["aliases"] + entity["aliases"]

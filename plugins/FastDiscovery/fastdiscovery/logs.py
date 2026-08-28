@@ -49,9 +49,9 @@ def sanitise(message) -> str:
     return text
 
 
-def _write(level, message) -> None:
+def _write(level, message, prefix=PREFIX) -> None:
     for line in sanitise(message).split("\n"):
-        sys.stderr.write("%s%s%s%s%s\n" % (_START, level, _END, PREFIX, line))
+        sys.stderr.write("%s%s%s%s%s\n" % (_START, level, _END, prefix, line))
     sys.stderr.flush()
 
 
@@ -74,11 +74,17 @@ def error(message) -> None:
 
 
 def progress(fraction) -> None:
+    """Report 0.0-1.0 to the job's progress bar (clamped).
+
+    Written **without** the name prefix every other line carries: `p` is not a log
+    level, it is a value Stash parses with `strconv.ParseFloat`, and a prefix in front
+    of the number makes the whole line unparseable.
+    """
     try:
         value = float(fraction)
     except (TypeError, ValueError):
         return
-    _write("p", "%.4f" % min(max(value, 0.0), 1.0))
+    _write("p", "%.4f" % min(max(value, 0.0), 1.0), prefix="")
 
 
 def use_utf8() -> None:

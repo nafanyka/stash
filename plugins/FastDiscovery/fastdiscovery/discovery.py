@@ -152,10 +152,12 @@ class Runner:
             self.repo.finish_run(run_id, R.FAILED, error=message)
             raise
 
+        # Reported from the same counts the run row carries, so the log and the review
+        # cannot disagree about how many sources there were.
         logs.info("scene %s: run %s %s - %d source(s), %d with results, %d error(s), "
                   "%d result(s), %d url(s)%s"
-                  % (scene_id, run_id, status, state.sources, state.ok, state.errors,
-                     state.results, self.repo.url_count(run_id),
+                  % (scene_id, run_id, status, counted["total"], counted["ok"],
+                     counted["errors"], state.results, self.repo.url_count(run_id),
                      (" - stopped: " + state.stop_reason) if state.stop_reason else ""))
         return state.summary(status)
 
