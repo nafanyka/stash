@@ -10,11 +10,15 @@ plugins/<Name>/<Name>.yml     plugin manifest (+ .py / .js / README.md next to i
 scrapers/<Name>/<Name>.yml    scraper manifest (+ .py next to it)
   scrapers/ScrapeAll/         probes every non-URL scene source, merges the hits
   scrapers/ScrapeDiscovery/   thin entry point into the ScrapeDiscovery plugin
+  scrapers/FastDiscovery/     thin entry point into the FastDiscovery plugin
   plugins/ScrapeAllSettings/  the settings ScrapeAll obeys (no scraping of its own)
   plugins/ScrapeDiscovery/    runs many installed scrapers per scene, keeps every
                               answer in its own database, changes nothing
+  plugins/FastDiscovery/      runs every stash-box and every URL scraper reachable
+                              from a scene, then one review table; nothing is
+                              written until you apply, and the results are then gone
 common/python/stash_common/   shared helpers, bundled into packages that import them
-docs/                         ScrapeDiscovery's architecture, schema and dev notes
+docs/                         architecture, schema and dev notes for both plugins
 tests/                        pytest suite, no Stash server needed
 dist/plugins/index.yml        generated source index — the URL Stash subscribes to
 dist/scrapers/index.yml       generated source index
@@ -22,13 +26,20 @@ dist/scrapers/index.yml       generated source index
 .github/workflows/build_index.py  the packager, runnable locally
 ```
 
-ScrapeAll and ScrapeDiscovery answer the same question from opposite ends. ScrapeAll is
-a scraper: it probes the sources, merges the hits, and hands Stash one scraped scene to
-save. ScrapeDiscovery is an orchestrator: it probes far more sources, stores every
-answer separately with its provenance, and writes nothing until you pick from it. Use
-ScrapeAll when you expect one good answer; use ScrapeDiscovery when you do not know
-which scraper, if any, knows the scene. See
-[`plugins/ScrapeDiscovery/README.md`](plugins/ScrapeDiscovery/README.md).
+Three answers to one question — *what does anything know about this scene?* — from
+different directions:
+
+| | Asks | Returns | Writes |
+| --- | --- | --- | --- |
+| **ScrapeAll** | every non-URL scene source | one merged scene, for Stash's own dialog | when you save the dialog |
+| **ScrapeDiscovery** | far more sources, including every fragment and name scraper | scored candidates in its own database | nothing until you pick |
+| **FastDiscovery** | every configured stash-box, then every scraper reachable from the scene's URLs, recursively | one review table, one column per answer | nothing until you apply, and the results are deleted the moment you decide |
+
+Use ScrapeAll when you expect one good answer, ScrapeDiscovery when you do not know which
+scraper — if any — knows the scene, and FastDiscovery when you want everything your
+install knows about a scene in front of you at once. See
+[`plugins/ScrapeDiscovery/README.md`](plugins/ScrapeDiscovery/README.md) and
+[`plugins/FastDiscovery/README.md`](plugins/FastDiscovery/README.md).
 
 One `.yml` per folder, named after the folder. Stash scans the scrapers directory
 recursively and tries to load **every** `.yml` it finds as a scraper config, so a
@@ -96,8 +107,10 @@ pip install pytest pyyaml
 python -m pytest tests/
 ```
 
-Covers ScrapeDiscovery only, and needs no Stash server: the Stash API is faked, so the
-engine, cache, normalisation and inbox queries are all exercised offline.
+Covers ScrapeDiscovery and FastDiscovery, and needs no Stash server: the Stash API is
+faked, so the engines, caching, normalisation, the merge matrix and the apply path are
+all exercised offline. FastDiscovery's tests are `test_fd_*.py` and include every
+acceptance case from its specification.
 
 ## Building locally
 

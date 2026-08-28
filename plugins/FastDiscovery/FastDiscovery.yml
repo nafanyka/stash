@@ -1,0 +1,136 @@
+name: FastDiscovery
+description: >-
+  Runs every stash-box you have configured against a scene, follows every URL those
+  results and the scene already carry through every scraper that can read them, and
+  puts all of the answers side by side in one review table. Nothing is written to the
+  scene until you press Apply, and the results are deleted the moment you decide.
+version: 0.1.0
+url: https://github.com/nafanyka/stash
+
+exec:
+  - python
+  - "{pluginDir}/FastDiscovery.py"
+interface: raw
+
+# Injected into the Stash UI. The files are served from /plugin/FastDiscovery/... and
+# loaded as classic scripts before the router mounts, which is what lets the page
+# register its own route. No csp block is needed: everything is same-origin, and the
+# base policy already allows data: and remote images, which is how covers arrive.
+ui:
+  javascript:
+    - ui/fastdiscovery.js
+  css:
+    - ui/fastdiscovery.css
+
+tasks:
+  # Started from a scene's FastDiscovery tab, from the scene list's selected-items
+  # menu, or from the FastDiscovery page, all of which pass scene ids in args. Listed
+  # here because a task is the only way to get a job with a progress bar and a stop
+  # button.
+  - name: Discover scenes
+    description: >-
+      Discover the scenes given in the arguments. Started from a scene or from a
+      selection in the scene list; running it here without scene ids does nothing.
+    defaultArgs:
+      task: Discover scenes
+
+  - name: Maintenance
+    description: >-
+      Mark runs whose process was killed as failed, drop images no run references any
+      more, and compact the FastDiscovery database.
+    defaultArgs:
+      task: Maintenance
+
+  - name: Show effective settings
+    description: >-
+      Log the configuration exactly as a run will read it, the stash-boxes detected in
+      Stash, and where the database lives. Run this first when something behaves oddly.
+    defaultArgs:
+      task: Show effective settings
+
+# Stash offers no declarable default and only three setting types, so every default
+# lives in fastdiscovery/settings.py; these entries exist so the settings are editable
+# in Stash's own plugin panel as well as on the FastDiscovery settings page, which
+# writes into this same store.
+#
+# There is deliberately no stash-box configuration here. The endpoints and their API
+# keys belong to Stash, and FastDiscovery reads them from Stash's own configuration
+# every time it runs, so a box you add later is used without touching anything here.
+settings:
+  databasePath:
+    displayName: Database path
+    description: >-
+      Where fastdiscovery.sqlite lives. Empty means
+      <stash config dir>/fast-discovery/fastdiscovery.sqlite. Do not put it in the
+      plugin directory: updating a plugin package deletes the files it installed.
+    type: STRING
+  recursiveUrlDiscovery:
+    displayName: Recursive URL discovery
+    description: >-
+      Follow URLs found inside scraper results, and the URLs those results mention in
+      turn. On by default.
+    type: BOOLEAN
+  maxDepth:
+    displayName: Max URL recursion depth
+    description: >-
+      How far to follow discovered URLs. The scene's own URLs and the stash-box
+      results are depth 0. Default 3.
+    type: NUMBER
+  maxUrlsPerRun:
+    displayName: Max URLs per run
+    description: Stop discovering new URLs for one scene after this many. Default 60.
+    type: NUMBER
+  maxSourcesPerRun:
+    displayName: Max sources per run
+    description: Hard ceiling on scraper invocations for one run. Default 120.
+    type: NUMBER
+  maxConcurrentScrapers:
+    displayName: Concurrent scraper operations
+    description: >-
+      How many scraper invocations run at once. Each one is a request to Stash that may
+      launch a browser, so keep this small. Default 3, maximum 16.
+    type: NUMBER
+  scraperTimeout:
+    displayName: Scraper timeout (seconds)
+    description: >-
+      How long one scraper gets before its source is abandoned. Abandoning the request
+      also cancels the scraper process on the server. Default 30.
+    type: NUMBER
+  aimAmbiguousUrls:
+    displayName: Reach every scraper for a shared URL
+    description: >-
+      When several installed scrapers match one URL, Stash's own URL scrape cannot be
+      aimed at a chosen one. With this on, each such scraper that also supports
+      fragment scraping is called directly with the URL, so it gets its own column.
+      On by default.
+    type: BOOLEAN
+  stashboxNameSearch:
+    displayName: Also search stash-boxes by title
+    description: >-
+      On top of the fingerprint lookup that always runs against every box. Off by
+      default: a name search answers with near-misses, which become columns to read past.
+    type: BOOLEAN
+  maxResultsPerSource:
+    displayName: Max results per source
+    description: >-
+      A source that answers with a list - a stash-box name search - contributes at most
+      this many columns. Default 3.
+    type: NUMBER
+  runTimeBudget:
+    displayName: Time budget per scene (seconds)
+    description: >-
+      Stop a run after this long, keeping everything already found. 0 removes the
+      limit. Default 900.
+    type: NUMBER
+  staleRunHours:
+    displayName: Stale run timeout (hours)
+    description: >-
+      A run still claiming to be running after this long was killed rather than
+      finished, and is marked failed. Default 12.
+    type: NUMBER
+  debugLogging:
+    displayName: Debug logging
+    description: >-
+      Log every source's input, timing and returned field counts. Never logs
+      credentials and never dumps a full payload.
+    type: BOOLEAN

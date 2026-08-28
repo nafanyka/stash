@@ -1,0 +1,541 @@
+/*
+ * FastDiscovery styling.
+ *
+ * Built on Stash's own Bootstrap variables so the page belongs to the app rather than
+ * sitting on top of it: colours come from --secondary/--primary/--danger and friends,
+ * with a plain fallback for each in case a theme has not defined one.
+ *
+ * The load-bearing part is the table. A review can be twenty columns wide, so the
+ * table scrolls sideways inside its own box while the Field column and the Current
+ * column stay put, and the header stays put vertically (requirement 40).
+ */
+
+.fd-page {
+  padding: 1rem 1.5rem 3rem;
+}
+
+.fd-muted {
+  color: var(--text-muted, #868e96);
+  font-size: 0.85em;
+}
+
+.fd-warn {
+  color: var(--warning, #ffc107);
+}
+
+.fd-loading,
+.fd-empty {
+  padding: 1.5rem;
+  color: var(--text-muted, #868e96);
+}
+
+.fd-problem {
+  margin: 0.5rem 0 1rem;
+  padding: 0.6rem 0.9rem;
+  border-left: 3px solid var(--danger, #dc3545);
+  background: rgba(220, 53, 69, 0.08);
+  border-radius: 3px;
+}
+
+.fd-problem .fd-retry {
+  margin-left: 0.75rem;
+}
+
+.fd-done {
+  margin: 0.5rem 0 1rem;
+  padding: 0.6rem 0.9rem;
+  border-left: 3px solid var(--success, #28a745);
+  background: rgba(40, 167, 69, 0.08);
+  border-radius: 3px;
+}
+
+.fd-note {
+  margin: 0.5rem 0;
+  color: var(--text-muted, #868e96);
+  font-style: italic;
+}
+
+/* --------------------------------------------------------------------- heading */
+
+.fd-review-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.fd-review-head h2 {
+  margin: 0 0 0.25rem;
+}
+
+.fd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.fd-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+/* ----------------------------------------------------------------------- pills */
+
+.fd-pill {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.fd-pill-running { background: var(--primary, #137cbd); color: #fff; }
+.fd-pill-ready   { background: var(--success, #28a745); color: #fff; }
+.fd-pill-warn    { background: var(--warning, #ffc107); color: #222; }
+.fd-pill-error   { background: var(--danger, #dc3545); color: #fff; }
+.fd-pill-done    { background: var(--secondary, #394b59); color: #fff; }
+.fd-pill-muted   { background: rgba(128, 128, 128, 0.35); color: inherit; }
+
+.fd-badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0 0.35rem;
+  border-radius: 8px;
+  background: rgba(128, 128, 128, 0.3);
+  font-size: 0.72rem;
+}
+
+.fd-badge-warn { background: rgba(255, 193, 7, 0.35); }
+.fd-badge-new  { background: rgba(19, 124, 189, 0.35); }
+
+.fd-tab-badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: 8px;
+  background: var(--primary, #137cbd);
+  color: #fff;
+  font-size: 0.72rem;
+}
+
+/* --------------------------------------------------------------------- sources */
+
+.fd-sources {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 4px;
+}
+
+.fd-sources-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.fd-sources-head h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.fd-sources-warn {
+  margin: 0.35rem 0;
+  color: var(--warning, #ffc107);
+  font-size: 0.88rem;
+}
+
+.fd-source-list {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.15rem 1rem;
+}
+
+.fd-source {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+}
+
+.fd-source-icon { width: 1em; text-align: center; }
+.fd-source-OK .fd-source-icon { color: var(--success, #28a745); }
+.fd-source-ERROR .fd-source-icon,
+.fd-source-TIMEOUT .fd-source-icon { color: var(--danger, #dc3545); }
+.fd-source-UNREACHABLE .fd-source-icon { color: var(--warning, #ffc107); }
+
+.fd-source-url {
+  color: var(--text-muted, #868e96);
+  font-size: 0.85em;
+}
+
+.fd-source-error {
+  color: var(--danger, #dc3545);
+  font-size: 0.85em;
+}
+
+/* ----------------------------------------------------------------- merge table */
+
+.fd-table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 4px;
+}
+
+.fd-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
+  font-size: 0.9rem;
+}
+
+.fd-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--body-bg, #202b33);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.35);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: bottom;
+}
+
+/* The two columns that must never scroll away: what the field is, and what the scene
+   already has to compare against. */
+.fd-table th.fd-th-field {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  min-width: 9rem;
+  background: var(--body-bg, #202b33);
+  border-right: 1px solid rgba(128, 128, 128, 0.35);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.fd-table thead th.fd-th-current,
+.fd-table tbody td.fd-cell:first-of-type {
+  background: rgba(128, 128, 128, 0.08);
+}
+
+.fd-th-name { font-weight: 600; }
+
+.fd-th-sub {
+  color: var(--text-muted, #868e96);
+  font-size: 0.78rem;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fd-th-box .fd-th-name { color: var(--primary, #137cbd); }
+
+.fd-field-label { font-weight: 600; }
+
+.fd-field-note { font-style: italic; }
+
+.fd-toggle { padding: 0; font-size: 0.8rem; }
+
+.fd-row td { border-bottom: 1px solid rgba(128, 128, 128, 0.18); }
+
+.fd-row-readonly .fd-cell { opacity: 0.75; }
+
+.fd-cell {
+  padding: 0.4rem 0.75rem;
+  vertical-align: top;
+  max-width: 22rem;
+}
+
+.fd-cell-text {
+  display: inline-block;
+  max-width: 20rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.fd-cell-empty { background: rgba(128, 128, 128, 0.05); }
+
+.fd-cell-selectable { cursor: pointer; }
+
+.fd-cell-selectable:hover { background: rgba(19, 124, 189, 0.12); }
+
+.fd-cell-selected {
+  background: rgba(19, 124, 189, 0.22);
+  box-shadow: inset 2px 0 0 var(--primary, #137cbd);
+}
+
+.fd-radio {
+  margin-right: 0.35rem;
+  color: var(--primary, #137cbd);
+}
+
+/* ------------------------------------------------------------------ list cells */
+
+.fd-cell-list { white-space: normal; }
+
+.fd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin: 0.1rem 0.2rem 0.1rem 0;
+  padding: 0.05rem 0.4rem;
+  border-radius: 10px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.fd-chip-on {
+  background: rgba(19, 124, 189, 0.22);
+  border-color: var(--primary, #137cbd);
+}
+
+.fd-chip-off { opacity: 0.65; }
+
+.fd-check { width: 0.8em; }
+
+.fd-entity-new .fd-entity-name { font-style: italic; }
+
+.fd-entity-disambiguation { color: var(--text-muted, #868e96); }
+
+/* --------------------------------------------------------------- list editors */
+
+.fd-row-editor td {
+  padding: 0.5rem 0.75rem 1rem;
+  background: rgba(128, 128, 128, 0.06);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.18);
+}
+
+.fd-list-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+
+.fd-list-group { min-width: 18rem; }
+
+.fd-list-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #868e96);
+  margin-bottom: 0.25rem;
+}
+
+.fd-pick {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.1rem 0;
+  cursor: pointer;
+  font-weight: normal;
+}
+
+.fd-pick-on { font-weight: 600; }
+
+.fd-plus {
+  color: var(--primary, #137cbd);
+  font-weight: 700;
+}
+
+.fd-provenance {
+  color: var(--text-muted, #868e96);
+  font-size: 0.78rem;
+}
+
+.fd-hint {
+  color: var(--warning, #ffc107);
+  font-size: 0.78rem;
+}
+
+/* --------------------------------------------------------------------- images */
+
+.fd-image-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+
+.fd-image-strip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.fd-image-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.fd-thumb {
+  max-height: 120px;
+  max-width: 200px;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.2);
+}
+
+.fd-thumb-small { max-height: 52px; max-width: 92px; }
+
+.fd-thumb-loading,
+.fd-thumb-missing {
+  display: inline-block;
+  width: 92px;
+  height: 52px;
+  line-height: 52px;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-muted, #868e96);
+}
+
+.fd-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 1rem;
+}
+
+.fd-gallery-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: normal;
+}
+
+.fd-gallery-selected {
+  border-color: var(--primary, #137cbd);
+  background: rgba(19, 124, 189, 0.12);
+}
+
+.fd-gallery-label {
+  font-size: 0.78rem;
+  color: var(--text-muted, #868e96);
+}
+
+/* ------------------------------------------------------------------ runs table */
+
+.fd-runs {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.fd-runs th,
+.fd-runs td {
+  padding: 0.45rem 0.6rem;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+  text-align: left;
+  vertical-align: top;
+}
+
+.fd-row-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.fd-paging {
+  margin-top: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* ---------------------------------------------------------------- url graph */
+
+.fd-graph { margin-top: 1.5rem; }
+
+.fd-graph-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.fd-graph-table th,
+.fd-graph-table td {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+  text-align: left;
+}
+
+.fd-graph-NO_HANDLER td,
+.fd-graph-SKIPPED_DEPTH td,
+.fd-graph-SKIPPED_LIMIT td,
+.fd-graph-RELATED td {
+  opacity: 0.6;
+}
+
+/* --------------------------------------------------------------- scene panel */
+
+.fd-panel { padding: 1rem 0; }
+
+.fd-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.fd-panel-head h4 { margin: 0; }
+
+.fd-panel-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0.5rem 0;
+  font-size: 0.88rem;
+  color: var(--text-muted, #868e96);
+}
+
+.fd-history { margin-top: 1.5rem; }
+
+/* ------------------------------------------------------------------ settings */
+
+.fd-detected {
+  margin: 1rem 0 1.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 4px;
+}
+
+.fd-detected h4 { font-size: 1rem; }
+
+.fd-detected ul { list-style: none; padding: 0; margin: 0.5rem 0; }
+
+.fd-setting-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.fd-setting-name { font-weight: 600; margin-left: 0.4rem; }
+
+.fd-setting-input { max-width: 22rem; }
+
+.fd-setting-help {
+  font-size: 0.84rem;
+  color: var(--text-muted, #868e96);
+  margin-top: 0.2rem;
+}
+
+.fd-modal .modal-content {
+  background: var(--body-bg, #202b33);
+}

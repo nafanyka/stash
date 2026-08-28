@@ -1,0 +1,9 @@
+; Copy to config.ini next to FastDiscovery.py and fill in.
+; Only needed if Stash listens somewhere other than localhost:9999, or has
+; authentication enabled. Scrapers - unlike plugins - are not handed the server's
+; connection details, so without this the shim cannot reach the plugin.
+;
+; STASH_URL and STASH_API_KEY in the environment take precedence over this file.
+[stash]
+url = http://localhost:9999/graphql
+api_key =

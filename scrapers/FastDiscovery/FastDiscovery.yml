@@ -1,0 +1,22 @@
+# Lines starting with "#" are read by the build to fill the source index.
+# Stash ignores them; a scraper config has no version/description field of its own and
+# rejects unknown keys, so they cannot live in the config proper.
+# version: 1
+# description: Entry point into the FastDiscovery plugin. Starts a run for the scene and always returns nothing, because FastDiscovery is reviewed before anything is written. Requires the FastDiscovery plugin.
+
+name: FastDiscovery
+
+# sceneByFragment is what puts this in two places at once:
+#   * the scene edit panel, under "Scrape with..."
+#   * Settings -> Tasks -> Identify, as a selectable source
+#
+# It answers both with null, on purpose. Identify saves whatever a source returns
+# without review, and FastDiscovery's entire reason to exist is that a person looks at
+# every source's answer first. So this starts a run and points at the review; it is
+# safe under Identify precisely because it never returns anything for Identify to save.
+sceneByFragment:
+  action: script
+  script:
+    - python
+    - FastDiscovery.py
+    - scene-fragment
