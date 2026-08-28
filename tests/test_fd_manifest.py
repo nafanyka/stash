@@ -122,3 +122,19 @@ class TestScraperShim:
     def test_the_shim_is_on_the_never_invoke_list(self):
         # Otherwise a run could invoke the shim, which starts a run.
         assert "fastdiscovery" in S.NEVER_INVOKE
+
+
+class TestVersion:
+    """Two places name the version, and they are read by different things.
+
+    The manifest's is what Stash compares to decide an update is available and what the
+    source index publishes; the package's is what `ping` reports and what a bug report
+    quotes. Drift between them makes the second one a lie.
+    """
+
+    def test_the_manifest_and_the_package_agree(self):
+        import fastdiscovery
+        assert manifest()["version"] == fastdiscovery.__version__
+
+    def test_the_version_looks_like_a_version(self):
+        assert re.fullmatch(r"\d+\.\d+\.\d+", str(manifest()["version"]))
