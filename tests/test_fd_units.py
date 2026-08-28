@@ -98,12 +98,11 @@ class TestFieldModel:
         assert fields.scalar_key(field, "The Title!") == fields.scalar_key(
             field, "the title")
 
-    def test_a_duration_is_shown_as_a_length_not_a_float(self):
-        field = fields.BY_NAME["duration"]
-        assert fields.display_scalar(field, 1800.0) == "30:00"
-        assert fields.display_scalar(field, 5445) == "1:30:45"
-        # Two sources spelling the same length differently are one answer.
-        assert fields.scalar_key(field, 1800.0) == fields.scalar_key(field, "1800")
+    def test_duration_is_not_a_row_at_all(self):
+        # It comes from the scene's own file and can never be written, so a row for it
+        # would be one nobody can act on.
+        assert "duration" not in fields.BY_NAME
+        assert fields.extra_fields(["duration"]) == []
 
     def test_a_filename_becomes_something_searchable(self):
         assert fields.title_from_filename(

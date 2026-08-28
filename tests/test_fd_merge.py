@@ -355,3 +355,38 @@ class TestCellShape:
         assert result["applied"] is True
         assert client.created[0][0] == "studio"
         assert client.updates[0]["studio_id"] == "new-studio-1"
+
+
+class TestUrlRow:
+    """What ends up in the scene's URL list, and what only ends up in the graph."""
+
+    def test_every_url_a_source_claims_as_the_scene_is_offered(self, fd_repo, fd_config,
+                                                               fd_scene):
+        review = review_of(fd_repo, fd_config, fd_scene, {
+            STASHDB: scraped(urls=["https://siteb.com/v/2"]),
+            TPDB: scraped(url="https://sitec.com/x/3"),
+        })
+        assert {value["raw"] for value in row(review, "urls")["values"]} == {
+            "https://sitea.com/scene/1", "https://siteb.com/v/2", "https://sitec.com/x/3"}
+
+    def test_a_url_found_by_following_another_is_offered_too(self, fd_repo, fd_config,
+                                                             fd_scene):
+        review = review_of(fd_repo, fd_config, fd_scene, {
+            STASHDB: scraped(urls=["https://siteb.com/v/2"]),
+            "https://siteb.com/v/2": scraped(urls=["https://sitec.com/x/3"]),
+            "https://sitec.com/x/3": scraped(title="three"),
+        })
+        assert "https://sitec.com/x/3" in {value["raw"] for value
+                                          in row(review, "urls")["values"]}
+
+    def test_a_url_mentioned_in_prose_is_a_lead_not_a_scene_url(self, fd_repo,
+                                                                fd_config, fd_scene):
+        # It is still followed and still in the graph - it just is not a claim that the
+        # scene lives there, so it is not offered as one, let alone ticked by default.
+        review = review_of(fd_repo, fd_config, fd_scene, {
+            STASHDB: scraped(details="mirrored at https://siteb.com/v/2"),
+        })
+        assert "https://siteb.com/v/2" not in {value["raw"] for value
+                                              in row(review, "urls")["values"]}
+        assert "https://siteb.com/v/2" in {entry["url"] for entry
+                                           in review["urls_graph"]}

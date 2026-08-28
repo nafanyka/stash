@@ -8,10 +8,10 @@
       can read them, and puts all of the answers side by side in one review table.
       Nothing is written to the scene until you press Apply, and the results are deleted
       the moment you decide.
-  version: 0.1.0-0de6d30
-  date: '2026-08-28 12:09:28'
+  version: 0.1.0-edb7677
+  date: '2026-08-28 12:25:41'
   path: FastDiscovery.zip
-  sha256: cc30e544fb05c91f62b8505e15d2390438ea4d7b095eec95d6ebd14f307668eb
+  sha256: bb8b2491416ad2a38290ddfa4a0b9b8bc07e85e6f6da2f19f146885722172739
   requires: []
 - id: ScrapeAllSettings
   name: ScrapeAll Settings

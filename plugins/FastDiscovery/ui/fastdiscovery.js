@@ -59,6 +59,59 @@
     CANCELLED: "Cancelled"
   };
 
+  // How many runs a page shows. Kept in localStorage rather than in the plugin's
+  // settings: it is a property of this browser window, not of the install, and going
+  // through the backend for it would cost a Python process per change.
+  var PER_PAGE_KEY = "fastdiscovery.perPage";
+  var PER_PAGE_CHOICES = [10, 20, 50, 100];
+  var PER_PAGE_DEFAULT = 10;
+
+  // A private window, or a browser set to block site data, makes localStorage throw on
+  // access rather than return nothing, so every use of it is guarded.
+  function loadPerPage() {
+    try {
+      var stored = Number(window.localStorage.getItem(PER_PAGE_KEY));
+      return PER_PAGE_CHOICES.indexOf(stored) >= 0 ? stored : PER_PAGE_DEFAULT;
+    } catch (error) {
+      return PER_PAGE_DEFAULT;
+    }
+  }
+
+  function savePerPage(value) {
+    try {
+      window.localStorage.setItem(PER_PAGE_KEY, String(value));
+    } catch (error) {
+      /* nothing to do: the choice simply will not be remembered */
+    }
+  }
+
+  // Applying or rejecting changes what the runs page should be showing, and the two
+  // can be on screen at once - the review lives on the scene page as well as on its
+  // own route. A window event is the cheapest way for one to tell the other.
+  var CHANGED_EVENT = "fastdiscovery:changed";
+
+  function announceChange() {
+    try {
+      window.dispatchEvent(new CustomEvent(CHANGED_EVENT));
+    } catch (error) {
+      /* very old browser: the list will refresh on its next mount instead */
+    }
+  }
+
+  function useToaster() {
+    var toast = api.hooks && api.hooks.useToast ? api.hooks.useToast() : null;
+    return {
+      success: function (message) {
+        if (toast && toast.success) toast.success(message);
+        else console.log("[FastDiscovery] " + message);
+      },
+      failure: function (message) {
+        if (toast && toast.error) toast.error(message);
+        else console.error("[FastDiscovery] " + message);
+      }
+    };
+  }
+
   var STATUS_CLASS = {
     RUNNING: "fd-pill-running",
     READY_FOR_REVIEW: "fd-pill-ready",
@@ -229,6 +282,8 @@
             return null;
           }
           confirm[1](null);
+          // A queued run is a row the list does not have yet.
+          announceChange();
           if (onStarted) onStarted(data);
           return data;
         },
@@ -821,9 +876,14 @@
     var selection = React.useState(null);
     var busy = React.useState(null);
     var problem = React.useState(null);
-    var done = React.useState(null);
+    // What this page did, once it has done it. Set instead of reloading the review:
+    // a decided run has no results left to show, and re-fetching one only to render
+    // "those are gone" reads like a failure when it is the successful outcome.
+    var decided = React.useState(null);
+    var toaster = useToaster();
     var starter = useRunStarter(function () {
-      done[1]("Discovery queued. This page updates when it finishes.");
+      toaster.success("FastDiscovery queued. This page updates when it finishes.");
+      decided[1](null);
       review.reload();
     });
 
@@ -851,6 +911,17 @@
       [selection[0]]
     );
 
+    if (decided[0]) {
+      return h(Decided, {
+        outcome: decided[0],
+        onRescan: function () { starter.start([Number(sceneId)], true); },
+        onBack: history ? function () { history.push(BASE); } : null,
+        busy: starter.busy,
+        confirming: starter.confirming,
+        onCancelConfirm: starter.cancelConfirm,
+        onConfirmReplace: starter.confirmReplace
+      });
+    }
     if (review.loading && !review.data) return h(Loading, { label: "Building the review..." });
     if (review.error) {
       return h(
@@ -899,22 +970,30 @@
       callOp(op, Object.assign({ run_id: data.run.id }, extra || {})).then(
         function (result) {
           busy[1](null);
-          if (op === "apply.commit") {
-            done[1](
-              result.applied
-                ? "Applied. " + (result.changes || []).length + " field(s) written; the " +
-                  "results have been deleted."
-                : result.reason || "Nothing needed writing."
-            );
-          } else {
-            done[1]("Rejected. The scene was not touched and the results are gone.");
+          if (op === "apply.commit" && !result.applied) {
+            // Nothing was selected that would change anything. Not a failure, and not
+            // a decision either - the review stays open.
+            toaster.success(result.reason || "Nothing needed writing.");
+            return;
           }
-          review.reload();
+          var message =
+            op === "apply.commit"
+              ? "FastDiscovery applied " + (result.changes || []).length +
+                " field(s) to this scene."
+              : "FastDiscovery results rejected. The scene was not touched.";
+          toaster.success(message);
+          decided[1]({
+            action: op === "apply.commit" ? "applied" : "rejected",
+            message: message,
+            changes: result.changes || [],
+            created: result.created || {}
+          });
+          announceChange();
         },
         function (failure) {
           busy[1](null);
           problem[1](failure.message);
-          review.reload();
+          toaster.failure(failure.message);
         }
       );
     }
@@ -942,6 +1021,42 @@
               : "",
             " · " + data.summary.urls + " URL(s)"
           )
+        ),
+        history
+          ? h(
+              "div",
+              { className: "fd-actions" },
+              h(
+                "button",
+                { className: "btn btn-link", onClick: function () { history.push(BASE); } },
+                "All runs"
+              )
+            )
+          : null
+      ),
+      h(Problem, { error: problem[0] || starter.error }),
+      data.run.stop_reason
+        ? h("div", { className: "fd-note" }, "Stopped early: " + data.run.stop_reason)
+        : null,
+      h(SourceList, { sources: data.sources }),
+      data.rows.length
+        ? h(MergeTable, {
+            review: data,
+            selection: selection[0],
+            onPick: pick,
+            onToggle: toggle
+          })
+        : h("div", { className: "fd-empty" }, "Nothing was found for this scene."),
+      h(UrlGraph, { graph: data.urls_graph }),
+      // Under the table, not above it: the decision is what you reach after reading
+      // everything, so it is where reading everything leaves you.
+      h(
+        "div",
+        { className: "fd-decide" },
+        h(
+          "div",
+          { className: "fd-muted" },
+          "Nothing has been written to this scene yet."
         ),
         h(
           "div",
@@ -977,36 +1092,62 @@
               onClick: function () { starter.start([Number(sceneId)], false); }
             },
             "Rescan"
-          ),
-          history
-            ? h(
-                "button",
-                { className: "btn btn-link", onClick: function () { history.push(BASE); } },
-                "All runs"
-              )
-            : null
+          )
         )
       ),
-      h(Problem, { error: problem[0] || starter.error }),
-      done[0] ? h("div", { className: "fd-done" }, done[0]) : null,
-      data.run.stop_reason
-        ? h("div", { className: "fd-note" }, "Stopped early: " + data.run.stop_reason)
-        : null,
-      h(SourceList, { sources: data.sources }),
-      data.rows.length
-        ? h(MergeTable, {
-            review: data,
-            selection: selection[0],
-            onPick: pick,
-            onToggle: toggle
-          })
-        : h("div", { className: "fd-empty" }, "Nothing was found for this scene."),
       h(ConfirmRescan, {
         confirming: starter.confirming,
         onCancel: starter.cancelConfirm,
         onConfirm: starter.confirmReplace
-      }),
-      h(UrlGraph, { graph: data.urls_graph })
+      })
+    );
+  }
+
+  // What is left after a decision. The results are gone by design, so there is nothing
+  // to re-fetch and nothing to apologise for - just what happened, and the two things
+  // worth doing next.
+  function Decided(props) {
+    var outcome = props.outcome;
+    var created = outcome.created || {};
+    var createdLine = Object.keys(created)
+      .map(function (kind) { return created[kind].length + " " + kind + "(s)"; })
+      .join(", ");
+    return h(
+      "div",
+      { className: "fd-page fd-review" },
+      h(
+        "div",
+        { className: "fd-decided" },
+        h("h3", null, outcome.action === "applied" ? "Applied" : "Rejected"),
+        h("p", null, outcome.message),
+        outcome.action === "applied" && outcome.changes.length
+          ? h(
+              "p",
+              { className: "fd-muted" },
+              "Fields written: " +
+                outcome.changes.map(function (change) { return change.field; }).join(", ") +
+                (createdLine ? ". Created: " + createdLine + "." : ".")
+            )
+          : null,
+        h(
+          "div",
+          { className: "fd-actions" },
+          props.onBack
+            ? h("button", { className: "btn btn-primary", onClick: props.onBack },
+                "Back to FastDiscovery")
+            : null,
+          h(
+            "button",
+            { className: "btn btn-secondary", disabled: props.busy, onClick: props.onRescan },
+            "Run again"
+          )
+        )
+      ),
+      h(ConfirmRescan, {
+        confirming: props.confirming,
+        onCancel: props.onCancelConfirm,
+        onConfirm: props.onConfirmReplace
+      })
     );
   }
 
@@ -1062,8 +1203,27 @@
   function RunsPage() {
     var tab = React.useState("ready");
     var page = React.useState(1);
-    var listing = useOp("run.list", { tab: tab[0], page: page[0], per_page: 25 });
+    var perPage = React.useState(loadPerPage);
+    var listing = useOp("run.list",
+                        { tab: tab[0], page: page[0], per_page: perPage[0] });
     var history = Router.useHistory ? Router.useHistory() : null;
+
+    // A decision taken in a review that is open at the same time - on the scene page,
+    // or in another tab of this browser - moves a run out of this list, so listen for
+    // it rather than leaving a stale row behind.
+    React.useEffect(
+      function () {
+        window.addEventListener(CHANGED_EVENT, listing.reload);
+        return function () { window.removeEventListener(CHANGED_EVENT, listing.reload); };
+      },
+      [listing.reload]
+    );
+
+    function choosePerPage(value) {
+      savePerPage(value);
+      perPage[1](value);
+      page[1](1);
+    }
 
     return h(
       "div",
@@ -1105,7 +1265,23 @@
             entry.label,
             total !== null ? h("span", { className: "fd-badge" }, total) : null
           );
-        })
+        }),
+        h(
+          "label",
+          { className: "fd-per-page" },
+          "Show",
+          h(
+            "select",
+            {
+              className: "form-control input-sm",
+              value: perPage[0],
+              onChange: function (event) { choosePerPage(Number(event.target.value)); }
+            },
+            PER_PAGE_CHOICES.map(function (size) {
+              return h("option", { key: size, value: size }, size);
+            })
+          )
+        )
       ),
       h(Problem, { error: listing.error, onRetry: listing.reload }),
       listing.loading && !listing.data ? h(Loading, null) : null,
@@ -1190,7 +1366,7 @@
       listing.data && !listing.data.runs.length
         ? h("div", { className: "fd-empty" }, "Nothing here.")
         : null,
-      listing.data && listing.data.total > 25
+      listing.data && listing.data.total > perPage[0]
         ? h(
             "div",
             { className: "fd-paging" },
@@ -1203,12 +1379,17 @@
               },
               "Previous"
             ),
-            h("span", null, " page " + page[0] + " "),
+            h(
+              "span",
+              null,
+              " page " + page[0] + " of " +
+                Math.ceil(listing.data.total / perPage[0]) + " "
+            ),
             h(
               "button",
               {
                 className: "btn btn-sm btn-secondary",
-                disabled: page[0] * 25 >= listing.data.total,
+                disabled: page[0] * perPage[0] >= listing.data.total,
                 onClick: function () { page[1](page[0] + 1); }
               },
               "Next"
@@ -1382,6 +1563,16 @@
         return function () { clearInterval(timer); };
       },
       [status.data]
+    );
+
+    // The review below this panel can decide the run; when it does, the counts and
+    // buttons up here are about a run that no longer exists in that state.
+    React.useEffect(
+      function () {
+        window.addEventListener(CHANGED_EVENT, status.reload);
+        return function () { window.removeEventListener(CHANGED_EVENT, status.reload); };
+      },
+      [status.reload]
     );
 
     if (status.loading && !status.data) return h(Loading, null);

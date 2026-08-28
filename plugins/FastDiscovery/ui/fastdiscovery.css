@@ -539,3 +539,57 @@
 .fd-modal .modal-content {
   background: var(--body-bg, #202b33);
 }
+
+/* ---------------------------------------------------------------- list controls */
+
+.fd-per-page {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0 auto;
+  font-weight: normal;
+  font-size: 0.85rem;
+  color: var(--text-muted, #868e96);
+}
+
+.fd-per-page select {
+  width: auto;
+  min-width: 4.5rem;
+}
+
+/* ------------------------------------------------------------------- deciding */
+
+/* The decision sits under the table it is a decision about, so it needs a rule above
+   it to read as the end of the page rather than as one more row. */
+.fd-decide {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(128, 128, 128, 0.3);
+}
+
+.fd-decide .btn-primary {
+  min-width: 8rem;
+}
+
+.fd-decided {
+  max-width: 42rem;
+  margin: 3rem auto;
+  padding: 1.5rem;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 4px;
+  text-align: center;
+}
+
+.fd-decided h3 {
+  margin-top: 0;
+}
+
+.fd-decided .fd-actions {
+  justify-content: center;
+  margin-top: 1.25rem;
+}

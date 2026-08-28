@@ -238,6 +238,13 @@ def _default_scalar(values):
     return values[0]["id"] if len(values) == 1 else None
 
 
+# The fields of a scraped result that are the scene's own address. A URL a scraper
+# mentioned in its `details` prose is a discovery lead - it is followed, and it is in
+# the graph - but it is not a claim that the scene lives there, so offering it as a
+# scene URL (ticked, by default) would write somebody's "see also" into the library.
+URL_FIELDS = ("urls", "url")
+
+
 def _url_row(field, columns, payloads):
     """URLs are a union, not a choice: every source contributes to one list (req. 16)."""
     values, index, cells = [], {}, {}
@@ -248,7 +255,8 @@ def _url_row(field, columns, payloads):
             found = list(payload.get("urls") or [])
         else:
             for entry in urls_module.from_result(payload):
-                if entry["role"] == urls_module.ROLE_SCENE:
+                if entry["role"] == urls_module.ROLE_SCENE \
+                        and entry["source"] in URL_FIELDS:
                     found.append(entry["url"])
         seen_here = []
         for raw in found:

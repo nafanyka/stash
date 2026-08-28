@@ -165,6 +165,10 @@ never scraped: they are not scene pages.
 Built by `merge.py` as a pure function of the run's stored results plus the scene **as it
 stands right now** (not the snapshot taken during the run, which may be stale).
 
+* **A cell's shape follows its row's.** A single-choice row maps a column to one option
+  id or nothing; a list row maps it to the list of options that column contributed. The
+  selection is applied as a whole, so one row handing back the wrong shape takes every
+  other field down with it.
 * **One logical value, many sources.** Four sources agreeing on a date is one entry with
   four source references. The comparison key is normalised; the value written is the raw
   one (requirements 18, 34).
@@ -178,14 +182,29 @@ stands right now** (not the snapshot taken during the run, which may be stale).
 
 | Kind | Fields | How it merges |
 | --- | --- | --- |
-| scalar | title, date, code, director, details, duration\*, rating100\* | choose one |
+| scalar | title, date, code, director, details, rating100\* | choose one |
 | entity | studio | choose one |
 | entity list | performers, tags, groups | union, tick individually |
 | url list | urls | union, all ticked by default |
 | stash id list | stash_ids | union, only the existing ones ticked |
 | image | image → cover_image | choose one |
 
-\* read-only: duration comes from the file, and no scraper can supply a rating.
+\* no scraper can supply a rating, so that row only ever shows the scene's own value.
+`duration` is not a row at all: it comes from the scene's own file and can never be
+written, so it would be a row nobody could act on. Sources still report it and it is
+still in the stored results.
+
+Every option carries an id derived from **what the option is** - the value's comparison
+key, or an entity's strongest identity - never from its position. The review is built
+twice, once to show and once when Apply resolves the selection, and in between an
+unmatched name can become a known record, which reorders the row. Positional ids would
+silently move a tick from one performer to another; hashed ones either resolve to the
+same thing or fail loudly.
+
+The URL row is what the sources claim as the **scene's own address**: their `url` and
+`urls` fields. A URL a scraper mentioned in its `details` prose is followed and appears
+in the discovery graph, but it is not offered as a scene URL - it is a lead, not a claim,
+and the URL row is ticked by default.
 
 ### Entity identity
 

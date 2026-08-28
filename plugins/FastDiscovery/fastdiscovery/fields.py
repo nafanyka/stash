@@ -154,10 +154,6 @@ FIELDS = (
     Field("rating100", SCALAR, "Rating", "rating100", None, "rating100", 130,
           note="Stash's scrape API has no rating field, so only the current value "
                "can exist."),
-    # Informational: comparing durations is how a wrong match gives itself away, but
-    # a scene's duration comes from its file and is never written.
-    Field("duration", SCALAR, "Duration", None, "duration", None, 140,
-          note="From the file; shown for comparison only, never written."),
 )
 
 BY_NAME = {field.name: field for field in FIELDS}
@@ -170,6 +166,10 @@ IGNORED_RESULT_KEYS = {
     "file",             # file metadata about their copy, not ours
     "fingerprints",     # evidence, not metadata; shown on the source, not as a field
     "remote_site_id",   # folded into stash_ids together with the box's endpoint
+    # A scene's duration comes from its own file and can never be written, so a row for
+    # it would be a row nobody can act on. The sources still report it and it is still
+    # in the stored results; it is simply not part of the review.
+    "duration",
     "__typename",
 }
 
@@ -199,11 +199,6 @@ def scalar_key(field, value):
         return ""
     if field.name == "date":
         return parse_date(value) or canon_text(value)
-    if field.name == "duration":
-        try:
-            return str(int(float(value)))
-        except (TypeError, ValueError):
-            return canon_text(value)
     if field.name == "details":
         # Details differ by a trailing newline across half the scrapers; comparing the
         # canonical form keeps that from looking like two different descriptions.
@@ -218,27 +213,7 @@ def display_scalar(field, value):
         return None
     if field.name == "date":
         return parse_date(value) or text
-    if field.name == "duration":
-        return format_duration(value) or text
     return text
-
-
-def format_duration(value):
-    """Seconds as h:mm:ss, so a length can be compared at a glance.
-
-    Display only - duration is never written to a scene, it comes from the file.
-    """
-    try:
-        total = int(float(value))
-    except (TypeError, ValueError):
-        return None
-    if total < 0:
-        return None
-    hours, rest = divmod(total, 3600)
-    minutes, seconds = divmod(rest, 60)
-    if hours:
-        return "%d:%02d:%02d" % (hours, minutes, seconds)
-    return "%d:%02d" % (minutes, seconds)
 
 
 # --------------------------------------------------------------- the scene side
