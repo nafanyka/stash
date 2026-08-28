@@ -534,12 +534,21 @@ def _entity_row(field, columns, payloads, endpoints, snapshot, client):
                                    one["name"].casefold()))
     _flag_possible_duplicates(entities)
 
+    single = field.kind == fields.ENTITY
+
+    # A cell's shape follows the row's: a single-choice row maps a column to one option
+    # id or None, exactly like a scalar or an image row, and a list row maps it to the
+    # list of options that column contributed. Handing a one-element list to a
+    # single-choice row would put a list where the selection expects an id, which is
+    # only noticed later, when Apply cannot resolve it.
     cells = {}
     for column in columns:
-        cells[column["id"]] = [entity["id"] for entity in entities
-                               if column["id"] in entity["sources"]]
+        here = [entity["id"] for entity in entities
+                if column["id"] in entity["sources"]]
+        # A scene has one studio and a scraper reports one, so `here` holds at most one
+        # entry for a single-choice row; taking the first is a guard, not a policy.
+        cells[column["id"]] = (here[0] if here else None) if single else here
 
-    single = field.kind == fields.ENTITY
     if single:
         default = next((entity["id"] for entity in entities if entity["on_scene"]), None)
         if default is None and len(entities) == 1 and entities[0]["existing"]:

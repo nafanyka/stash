@@ -297,3 +297,61 @@ class TestSummary:
         assert summary["failed_sources"] == 1
         assert summary["new_entities"] >= 1
         assert summary["columns"] >= 2
+
+
+class TestCellShape:
+    """A cell's shape has to match its row's, or the selection is malformed.
+
+    This is the invariant that a single-choice studio row broke: it handed the UI a
+    one-element list, the UI put that list into the selection where an option id
+    belongs, and Apply could not resolve it - taking every other field down with it,
+    because a selection is applied as a whole or not at all.
+    """
+
+    def test_single_choice_rows_map_a_column_to_one_option(self, fd_repo, fd_config,
+                                                           fd_scene):
+        review = review_of(fd_repo, fd_config, fd_scene, {
+            STASHDB: scraped(title="One", studio="Studio One",
+                             image="https://cdn/a.jpg"),
+            TPDB: scraped(title="Two", studio="Studio Two"),
+        })
+        for name in ("title", "studio", "image"):
+            entry = row(review, name)
+            ids = {value["id"] for value in entry["values"]}
+            for column, cell in entry["cells"].items():
+                assert cell is None or isinstance(cell, str), (name, column, cell)
+                assert cell is None or cell in ids, (name, column, cell)
+            assert entry["default"] is None or isinstance(entry["default"], str)
+
+    def test_list_rows_map_a_column_to_a_list_of_options(self, fd_repo, fd_config,
+                                                         fd_scene):
+        review = review_of(fd_repo, fd_config, fd_scene, {
+            STASHDB: scraped(tags=["A", "B"], performers=["P"],
+                             urls=["https://siteb.com/v/2"], remote_site_id="r1"),
+        })
+        for name in ("tags", "performers", "urls", "stash_ids"):
+            entry = row(review, name)
+            ids = {value["id"] for value in entry["values"]}
+            for column, cell in entry["cells"].items():
+                assert isinstance(cell, list), (name, column, cell)
+                assert set(cell) <= ids, (name, column, cell)
+            assert isinstance(entry["default"], list)
+
+    def test_a_studio_can_be_chosen_and_applied(self, fd_repo, fd_config, fd_scene):
+        # The end-to-end version of the same thing: pick the studio a column reported,
+        # exactly as clicking that cell in the UI does, and apply it.
+        from fastdiscovery import apply as apply_module
+        client = FakeStash(scene=fd_scene,
+                           responses={STASHDB: scraped(studio="Studio One")})
+        summary = discovery.Runner(client, fd_repo, fd_config).run(295)
+        run = fd_repo.run(summary["run_id"])
+        review = merge.build(fd_repo, run, fd_scene, client=client)
+
+        studio_column = [column for column in review["columns"]
+                         if column["name"] == "StashDB"][0]
+        chosen = row(review, "studio")["cells"][studio_column["id"]]
+        result = apply_module.commit(fd_repo, client, run, fd_scene,
+                                     {"studio": chosen})
+        assert result["applied"] is True
+        assert client.created[0][0] == "studio"
+        assert client.updates[0]["studio_id"] == "new-studio-1"
