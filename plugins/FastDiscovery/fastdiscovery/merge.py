@@ -678,9 +678,36 @@ _LOOKUP = {
 }
 
 # A ceiling on the name lookups one review may cost. The review is served by a plugin
-# process the browser is waiting on, and a scene with sixty scraped tags should not turn
-# into sixty GraphQL round trips.
-MAX_NAME_LOOKUPS = 40
+# process the browser is waiting on, and a scene with three hundred scraped tags should
+# not turn into three hundred GraphQL round trips.
+#
+# This is a *labelling* budget, not a correctness one: an entity past the ceiling is
+# shown as a candidate even though the library may already have it. Apply looks every
+# candidate up again, without a ceiling, immediately before creating it, so a stale
+# label costs a wrong word in the table and never a duplicate.
+MAX_NAME_LOOKUPS = 100
+
+
+def find_local_entity(client, kind, name, canon=None):
+    """The local record for a name, but only when there is exactly one.
+
+    The same rule Stash applies when it fills in `stored_id` (`pkg/match/scraped.go`):
+    an exact name match, and a unique one. Two records sharing a name is not a match -
+    it is a question only the user can answer - so this returns None and the entity
+    stays a candidate.
+    """
+    method = getattr(client, _LOOKUP.get(kind, ""), None) if client else None
+    if method is None or not name:
+        return None
+    canon = canon if canon is not None else fields.canon_name(name)
+    try:
+        found = method([name]) or {}
+    except Exception:
+        # A lookup failing must never be the reason a review or an apply falls over.
+        return None
+    exact = [row for row in (found.get(name) or [])
+             if fields.canon_name(row.get("name")) == canon]
+    return exact[0] if len(exact) == 1 else None
 
 
 def _link_by_name(field, entities, client):
@@ -722,6 +749,9 @@ def _link_by_name(field, entities, client):
             entity["ambiguous_matches"] = [
                 {"id": str(row["id"]), "name": row.get("name"),
                  "disambiguation": row.get("disambiguation")} for row in exact]
+        elif entity["name"] not in found:
+            # Past the lookup ceiling: not asked about, so not known to be missing.
+            entity["unchecked"] = True
 
 
 def _merge_by_stored_id(entities):

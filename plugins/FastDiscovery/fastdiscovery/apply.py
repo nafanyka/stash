@@ -66,7 +66,7 @@ def commit(repo, client, run, scene, selection, schema_fields=None,
         return {"applied": False, "reason": "nothing was selected that would change "
                                             "the scene", "changes": [], "created": {}}
 
-    created = _create_entities(client, plan["creates"])
+    created, linked = _create_entities(client, plan["creates"])
     values = _scene_update_input(repo, review, plan)
     values["id"] = str(run["scene_id"])
 
@@ -87,11 +87,12 @@ def commit(repo, client, run, scene, selection, schema_fields=None,
         raise ApplyError(message)
 
     repo.add_application(run["id"], run["scene_id"], "APPLIED",
-                         [one["field"] for one in plan["changes"]], created)
+                         [one["field"] for one in plan["changes"]],
+                         {"created": created, "linked": linked})
     repo.set_run_status(run["id"], R.APPLIED)
     repo.purge_run(run["id"])
     return {"applied": True, "changes": plan["changes"], "created": created,
-            "fields": sorted(values)}
+            "linked": linked, "fields": sorted(values)}
 
 
 def reject(repo, run):
@@ -221,12 +222,23 @@ def _display_of(row, value):
 # ------------------------------------------------------------------ creation
 
 def _create_entities(client, creates):
-    """Create the ticked candidates, and hand back their new ids.
+    """Resolve the ticked candidates to ids, creating only what genuinely is missing.
 
-    A candidate selected twice - the same new performer under two fields - is created
-    once. Nothing else is created, ever.
+    Every candidate is looked up by name one last time, immediately before it would be
+    created. That closes a window nothing else can: the review says "does not exist yet"
+    as of the moment it was built, and between then and now the same performer can have
+    been created by the review of another scene, by a second browser tab, or by hand.
+    Creating blindly turns that into a unique-constraint error from Stash's database,
+    with a whole apply lost behind it.
+
+    The lookup is not capped, unlike the one that labels the review: there are only ever
+    as many of these as the user actually ticked.
+
+    A candidate selected twice - the same new performer under two fields - is handled
+    once. Nothing that already exists is ever created, and nothing else is created at all.
     """
-    created = {"performer": [], "tag": [], "studio": [], "group": []}
+    created = {}
+    linked = {}
     seen = {}
     for entry in creates:
         entity = entry["entity"]
@@ -235,15 +247,42 @@ def _create_entities(client, creates):
         if marker in seen:
             entity["stored_id"] = seen[marker]
             continue
-        record = _create_one(client, kind, entity)
-        if record is None:
-            raise ApplyError("could not create %s %r" % (kind, entity["name"]))
+
+        record, was_created = _resolve_or_create(client, kind, entity)
         entity["stored_id"] = str(record["id"])
         seen[marker] = entity["stored_id"]
-        created.setdefault(kind, []).append({"id": entity["stored_id"],
-                                             "name": entity["name"]})
-        logs.info("created %s %s (id %s)" % (kind, entity["name"], entity["stored_id"]))
-    return {kind: rows for kind, rows in created.items() if rows}
+        bucket = created if was_created else linked
+        bucket.setdefault(kind, []).append({"id": entity["stored_id"],
+                                            "name": entity["name"]})
+        logs.info("%s %s %s (id %s)"
+                  % ("created" if was_created else "linked existing", kind,
+                     entity["name"], entity["stored_id"]))
+    return ({kind: rows for kind, rows in created.items() if rows},
+            {kind: rows for kind, rows in linked.items() if rows})
+
+
+def _resolve_or_create(client, kind, entity):
+    """(record, was_created) for one ticked candidate."""
+    existing = merge_module.find_local_entity(client, kind, entity["name"],
+                                              entity.get("canon"))
+    if existing:
+        return existing, False
+    try:
+        record = _create_one(client, kind, entity)
+    except Exception as exc:
+        # Somebody created it between the lookup above and this call, or it collides
+        # with an alias the name lookup cannot see. Ask once more: if it is there now,
+        # link it and carry on, because that is what the user asked for either way.
+        second = merge_module.find_local_entity(client, kind, entity["name"],
+                                                entity.get("canon"))
+        if second:
+            return second, False
+        from .executor import describe_error
+        raise ApplyError("could not create %s %r: %s"
+                         % (kind, entity["name"], describe_error(exc)))
+    if record is None:
+        raise ApplyError("could not create %s %r" % (kind, entity["name"]))
+    return record, True
 
 
 def _create_one(client, kind, entity):

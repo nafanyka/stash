@@ -258,6 +258,26 @@ otherwise be left selecting nothing, the row falls back to its default.
 
 ## 4. Apply, Reject, Rescan
 
+### Never creating what already exists
+
+A candidate is labelled "does not exist yet" as of the moment the review was built. By
+the time Apply runs, the same tag can have been created by another scene's review, by a
+second browser tab, or by hand - and creating it blindly is a unique-constraint error
+from Stash's database with the whole apply lost behind it.
+
+So every ticked candidate is looked up by name once more, immediately before it would be
+created, and linked instead if it is there. That lookup is uncapped, unlike the one that
+labels the review: there are only ever as many as the user actually ticked. If the create
+still fails - somebody won the race in the milliseconds between, or the name collides
+with an alias, which an exact-name lookup cannot see - the lookup is repeated once and
+the result linked if it has appeared. Only a create that fails for a real reason is
+reported as one.
+
+The result says which entities were created and which turned out to exist already, so
+"created 3" on one scene and "created 0" on the next is not a mystery.
+
+### Apply, step by step
+
 Apply, in order: rebuild the review against the live scene → drop the no-ops → create only
 the ticked candidates → **one** `sceneUpdate` → audit row → delete the payload. A scene
 edited between the review being rendered and Apply being pressed is detected by

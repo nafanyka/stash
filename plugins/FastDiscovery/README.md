@@ -73,7 +73,9 @@ is remembered until you decide, and Apply writes against exactly the table you w
 looking at.
 
 **Apply** writes your selection in a single `sceneUpdate`, creates only the candidates you
-ticked, and then deletes the results. **Reject** deletes them without touching the scene.
+ticked, and then deletes the results. A candidate that turns out to exist by then — you
+applied the same new performer on another scene a minute ago — is linked rather than
+created again, and the summary says so. **Reject** deletes them without touching the scene.
 **Rescan** throws away an undecided run and starts again, after asking.
 
 ## Settings

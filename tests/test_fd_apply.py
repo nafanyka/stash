@@ -360,3 +360,115 @@ class TestOnePerEndpoint:
                       key=lambda one: one["endpoint"]) == [
             {"endpoint": STASHDB, "stash_id": "keep-me"},
             {"endpoint": TPDB, "stash_id": "tpdb-one"}]
+
+
+class TestNeverCreatesWhatAlreadyExists:
+    """The review says "does not exist yet" as of when it was built.
+
+    Between then and Apply, the same tag can have been created by another scene's
+    review, by a second browser tab, or by hand. Creating blindly turns that into a
+    unique-constraint error from Stash's database with a whole apply lost behind it, so
+    every ticked candidate is looked up once more immediately before it is created.
+    """
+
+    def library_client(self, scene, tags, library):
+        """A fake Stash whose tags are shared between scenes, like a real one's."""
+        client = FakeStash(scene=scene, boxes=[{"name": "StashDB", "endpoint": STASHDB}],
+                           scrapers=[], entities=library,
+                           responses={STASHDB: scraped(title="T", tags=tags)})
+
+        def create_tag(values):
+            name = values["name"]
+            if name in library["tag"]:
+                raise RuntimeError("UNIQUE constraint failed: tags.name")
+            record = {"id": "tag-%d" % (len(library["tag"]) + 1), "name": name}
+            library["tag"][name] = [record]
+            client.created.append(("tag", values))
+            return record
+
+        client.create_tag = create_tag
+        return client
+
+    def apply_all_tags(self, fd_repo, fd_config, scene, tags, library):
+        client = self.library_client(scene, tags, library)
+        summary = discovery.Runner(client, fd_repo, fd_config).run(int(scene["id"]))
+        run = fd_repo.run(summary["run_id"])
+        review = merge.build(fd_repo, run, scene, client=client)
+        ticked = [entity["id"] for entity in row(review, "tags")["values"]]
+        return client, apply_module.commit(fd_repo, client, run, scene,
+                                           {"tags": ticked})
+
+    def test_a_tag_another_scene_just_created_is_linked_not_created_again(
+            self, fd_repo, fd_config, fd_scene):
+        library = {"tag": {}}
+        first = dict(fd_scene, id="101", tags=[])
+        second = dict(fd_scene, id="102", tags=[])
+
+        client_a, result_a = self.apply_all_tags(fd_repo, fd_config, first,
+                                                 ["Brand New Tag"], library)
+        assert [values["name"] for _kind, values in client_a.created] == ["Brand New Tag"]
+        assert result_a["created"]["tag"][0]["name"] == "Brand New Tag"
+
+        client_b, result_b = self.apply_all_tags(fd_repo, fd_config, second,
+                                                 ["Brand New Tag"], library)
+        assert client_b.created == []
+        assert result_b["created"] == {}
+        # Small enough to be inside the review's lookup budget, so the second review
+        # already knew it existed and it never reached the create stage at all - the
+        # scene simply links the id the first one made.
+        assert client_b.updates[0]["tag_ids"] == ["tag-1"]
+
+    def test_it_holds_past_the_reviews_lookup_budget(self, fd_repo, fd_config,
+                                                     fd_scene):
+        # The review only looks up so many names before it stops labelling, so a tag
+        # this far down the list still reads as a candidate. Apply must not believe it.
+        tags = ["Filler %03d" % index
+                for index in range(merge.MAX_NAME_LOOKUPS + 5)] + ["Last One"]
+        library = {"tag": {}}
+        first = dict(fd_scene, id="201", tags=[])
+        second = dict(fd_scene, id="202", tags=[])
+
+        self.apply_all_tags(fd_repo, fd_config, first, tags, library)
+        client_b, result_b = self.apply_all_tags(fd_repo, fd_config, second, tags,
+                                                 library)
+        assert client_b.created == []
+        assert result_b["applied"] is True
+
+    def test_losing_the_race_outright_is_recovered_from(self, fd_repo, fd_config,
+                                                        fd_scene):
+        library = {"tag": {}}
+        scene = dict(fd_scene, id="301", tags=[])
+        client = self.library_client(scene, ["Racy Tag"], library)
+        summary = discovery.Runner(client, fd_repo, fd_config).run(301)
+        run = fd_repo.run(summary["run_id"])
+        review = merge.build(fd_repo, run, scene, client=client)
+        ticked = [entity["id"] for entity in row(review, "tags")["values"]]
+
+        def create_tag(values):
+            # Somebody else got there first, between the lookup and this call.
+            library["tag"][values["name"]] = [{"id": "tag-99", "name": values["name"]}]
+            raise RuntimeError("UNIQUE constraint failed: tags.name")
+
+        client.create_tag = create_tag
+        result = apply_module.commit(fd_repo, client, run, scene, {"tags": ticked})
+        assert result["applied"] is True
+        assert result["linked"]["tag"][0]["id"] == "tag-99"
+        assert client.updates[0]["tag_ids"] == ["tag-99"]
+
+    def test_a_create_that_really_fails_still_fails(self, fd_repo, fd_config, fd_scene):
+        library = {"tag": {}}
+        scene = dict(fd_scene, id="401", tags=[])
+        client = self.library_client(scene, ["Doomed Tag"], library)
+        summary = discovery.Runner(client, fd_repo, fd_config).run(401)
+        run = fd_repo.run(summary["run_id"])
+        review = merge.build(fd_repo, run, scene, client=client)
+        ticked = [entity["id"] for entity in row(review, "tags")["values"]]
+
+        def create_tag(_values):
+            raise RuntimeError("the server said no")
+
+        client.create_tag = create_tag
+        with pytest.raises(apply_module.ApplyError) as failure:
+            apply_module.commit(fd_repo, client, run, scene, {"tags": ticked})
+        assert "the server said no" in str(failure.value)
+        assert client.updates == []

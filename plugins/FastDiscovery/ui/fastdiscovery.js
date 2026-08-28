@@ -1091,7 +1091,8 @@
             action: op === "apply.commit" ? "applied" : "rejected",
             message: message,
             changes: result.changes || [],
-            created: result.created || {}
+            created: result.created || {},
+            linked: result.linked || {}
           });
         },
         function (failure) {
@@ -1210,10 +1211,16 @@
   // worth doing next.
   function Decided(props) {
     var outcome = props.outcome;
-    var created = outcome.created || {};
-    var createdLine = Object.keys(created)
-      .map(function (kind) { return created[kind].length + " " + kind + "(s)"; })
-      .join(", ");
+    function tally(entities) {
+      return Object.keys(entities || {})
+        .map(function (kind) { return entities[kind].length + " " + kind + "(s)"; })
+        .join(", ");
+    }
+    var createdLine = tally(outcome.created);
+    // Ticked as new, but the library turned out to have it already - by the time Apply
+    // ran, another scene's review had created it. Worth saying, so "created 3" here and
+    // "created 2" on a similar scene is not a mystery.
+    var linkedLine = tally(outcome.linked);
     return h(
       "div",
       { className: "fd-page fd-review" },
@@ -1228,7 +1235,8 @@
               { className: "fd-muted" },
               "Fields written: " +
                 outcome.changes.map(function (change) { return change.field; }).join(", ") +
-                (createdLine ? ". Created: " + createdLine + "." : ".")
+                (createdLine ? ". Created: " + createdLine : "") +
+                (linkedLine ? ". Already existed, linked: " + linkedLine : "") + "."
             )
           : null,
         h(
