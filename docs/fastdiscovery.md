@@ -221,21 +221,26 @@ they are all the same evidence-free suggestion.
 `stored_id`, the review asks Stash by exact name — a unique hit becomes an existing entity,
 an ambiguous one stays a candidate with the alternatives attached.
 
-### Rejecting a source
+### Rejecting a column
 
-A source that matched the wrong scene is wrong about every field at once, and unticking
-its twenty values one row at a time is tedious and easy to do incompletely. The Sources
-panel therefore carries a per-source **reject** toggle: the review is rebuilt without
-that source, so its values, its votes, its entities and its images all disappear, and a
-row it was the only contributor to disappears with them.
+A result that matched the wrong scene is wrong about every field at once, and unticking
+its twenty values one row at a time is tedious and easy to do incompletely. Every column
+header therefore carries a **reject** toggle: the review is rebuilt without that column,
+so its values, its votes, its entities and its images all disappear, and a row it was the
+only contributor to disappears with it.
 
-Its column stays in the table, dimmed and struck through, because a decision you cannot
-see is one you cannot take back.
+A column, not a source. A source that answers with a list - a stash-box name search -
+gets one column per answer, and the whole point is that the first can be the scene while
+the second is a different film. `StashDB (search)` and `StashDB (search) #2` are struck
+out independently.
 
-The set is stored on the run (`runs.rejected_sources_json`), not held in the page, for
-one reason: the matrix, the defaults and Apply all have to agree about which sources
-count. Apply rebuilds the review with the same set, so it can only ever write something
-the reviewer actually saw. A tick left pointing at a value only the rejected source
+The column stays in the table, dimmed and hatched, because a decision you cannot see is
+one you cannot take back.
+
+The set is stored on the run (`runs.rejected_columns_json`), not held in the page, for
+one reason: the matrix, the defaults and Apply all have to agree about which columns
+count. Apply rebuilds the review with the same set, so it can only ever write something the
+reviewer actually saw. A tick left pointing at a value only the rejected column
 offered is dropped when the matrix is rebuilt - and for a single-choice row, which would
 otherwise be left selecting nothing, the row falls back to its default.
 
@@ -285,7 +290,7 @@ is never opened.
 ```
 meta          key/value: the cached ScrapedScene field list, per Stash build
 runs          one discovery run; its first columns are the audit record, and it holds
-              the draft selection and the rejected-source set until a decision
+              the draft selection and the rejected-column set until a decision
 sources       one invocation: type, method, name, endpoint/scraper/url, depth,
               parent_source_id (the discovery graph edge), attribution, status, error
 results       raw_json exactly as Stash returned it, plus an image reference

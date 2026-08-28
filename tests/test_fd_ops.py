@@ -202,8 +202,8 @@ class TestMaintenance:
         assert fd_repo.run(run_id)["status"] == R.FAILED
 
 
-class TestRejectingASource:
-    """A source that got the wrong scene is wrong about every field at once."""
+class TestRejectingAColumn:
+    """A result that got the wrong scene is wrong about every field at once."""
 
     def setup_run(self, fd_repo, fd_config, fd_scene):
         ctx, client = context(fd_repo, fd_config, fd_scene, {
@@ -214,19 +214,20 @@ class TestRejectingASource:
         })
         discovery.Runner(client, fd_repo, fd_config).run(295)
         run = fd_repo.latest_run(295)
-        wrong = [source for source in fd_repo.sources_of(run["id"])
-                 if source["name"] == "ThePornDB"][0]
+        review = ops.dispatch(ctx, "review.get", {"run_id": run["id"]})
+        wrong = [column for column in review["columns"]
+                 if column["name"] == "ThePornDB"][0]
         return ctx, run, wrong
 
-    def test_rejecting_drops_everything_that_source_said(self, fd_repo, fd_config,
+    def test_rejecting_drops_everything_that_column_said(self, fd_repo, fd_config,
                                                          fd_scene):
         ctx, run, wrong = self.setup_run(fd_repo, fd_config, fd_scene)
         before = ops.dispatch(ctx, "review.get", {"run_id": run["id"]})
         titles = next(row for row in before["rows"] if row["field"] == "title")
         assert "Wrong Scene Entirely" in {value["display"] for value in titles["values"]}
 
-        after = ops.dispatch(ctx, "review.reject_source",
-                             {"run_id": run["id"], "source_id": wrong["id"]})
+        after = ops.dispatch(ctx, "review.reject_column",
+                             {"run_id": run["id"], "column_id": wrong["id"]})
         titles = next(row for row in after["rows"] if row["field"] == "title")
         assert "Wrong Scene Entirely" not in {value["display"]
                                               for value in titles["values"]}
@@ -237,9 +238,9 @@ class TestRejectingASource:
     def test_the_column_stays_so_the_choice_can_be_taken_back(self, fd_repo, fd_config,
                                                               fd_scene):
         ctx, run, wrong = self.setup_run(fd_repo, fd_config, fd_scene)
-        after = ops.dispatch(ctx, "review.reject_source",
-                             {"run_id": run["id"], "source_id": wrong["id"]})
-        column = [one for one in after["columns"] if one["source_id"] == wrong["id"]][0]
+        after = ops.dispatch(ctx, "review.reject_column",
+                             {"run_id": run["id"], "column_id": wrong["id"]})
+        column = [one for one in after["columns"] if one["id"] == wrong["id"]][0]
         assert column["rejected"] is True
         assert after["summary"]["rejected_columns"] == 1
         # ...and every cell of it is empty, whatever the row's kind.
@@ -249,23 +250,23 @@ class TestRejectingASource:
 
     def test_unrejecting_brings_it_back(self, fd_repo, fd_config, fd_scene):
         ctx, run, wrong = self.setup_run(fd_repo, fd_config, fd_scene)
-        ops.dispatch(ctx, "review.reject_source",
-                     {"run_id": run["id"], "source_id": wrong["id"]})
-        back = ops.dispatch(ctx, "review.reject_source",
-                            {"run_id": run["id"], "source_id": wrong["id"],
+        ops.dispatch(ctx, "review.reject_column",
+                     {"run_id": run["id"], "column_id": wrong["id"]})
+        back = ops.dispatch(ctx, "review.reject_column",
+                            {"run_id": run["id"], "column_id": wrong["id"],
                              "rejected": False})
         titles = next(row for row in back["rows"] if row["field"] == "title")
         assert "Wrong Scene Entirely" in {value["display"] for value in titles["values"]}
-        assert back["rejected_sources"] == []
+        assert back["rejected_columns"] == []
 
     def test_the_decision_survives_a_reload(self, fd_repo, fd_config, fd_scene):
         ctx, run, wrong = self.setup_run(fd_repo, fd_config, fd_scene)
-        ops.dispatch(ctx, "review.reject_source",
-                     {"run_id": run["id"], "source_id": wrong["id"]})
+        ops.dispatch(ctx, "review.reject_column",
+                     {"run_id": run["id"], "column_id": wrong["id"]})
         again = ops.dispatch(ctx, "review.get", {"run_id": run["id"]})
-        assert again["rejected_sources"] == [wrong["id"]]
+        assert again["rejected_columns"] == [wrong["id"]]
 
-    def test_a_tick_on_a_value_only_that_source_had_does_not_survive(
+    def test_a_tick_on_a_value_only_that_column_had_does_not_survive(
             self, fd_repo, fd_config, fd_scene):
         ctx, run, wrong = self.setup_run(fd_repo, fd_config, fd_scene)
         before = ops.dispatch(ctx, "review.get", {"run_id": run["id"]})
@@ -275,8 +276,8 @@ class TestRejectingASource:
         ops.dispatch(ctx, "review.save", {"run_id": run["id"],
                                           "selection": {"title": doomed}})
 
-        after = ops.dispatch(ctx, "review.reject_source",
-                             {"run_id": run["id"], "source_id": wrong["id"]})
+        after = ops.dispatch(ctx, "review.reject_column",
+                             {"run_id": run["id"], "column_id": wrong["id"]})
         titles = next(row for row in after["rows"] if row["field"] == "title")
         assert after["selection"]["title"] == titles["default"]
         assert after["selection"]["title"] != doomed
@@ -284,8 +285,8 @@ class TestRejectingASource:
     def test_apply_uses_the_same_set_the_review_was_shown_with(self, fd_repo, fd_config,
                                                                fd_scene):
         ctx, run, wrong = self.setup_run(fd_repo, fd_config, fd_scene)
-        after = ops.dispatch(ctx, "review.reject_source",
-                             {"run_id": run["id"], "source_id": wrong["id"]})
+        after = ops.dispatch(ctx, "review.reject_column",
+                             {"run_id": run["id"], "column_id": wrong["id"]})
         titles = next(row for row in after["rows"] if row["field"] == "title")
         right = next(value["id"] for value in titles["values"]
                      if value["display"] == "Right")
@@ -294,9 +295,64 @@ class TestRejectingASource:
         assert preview["problems"] == []
         assert [change["display"] for change in preview["changes"]] == ["Right"]
 
-    def test_a_source_that_is_not_this_run_s_is_refused(self, fd_repo, fd_config,
+    def test_a_column_that_is_not_this_run_s_is_refused(self, fd_repo, fd_config,
                                                         fd_scene):
         ctx, run, _wrong = self.setup_run(fd_repo, fd_config, fd_scene)
-        result = ops.dispatch(ctx, "review.reject_source",
-                              {"run_id": run["id"], "source_id": 99999})
+        result = ops.dispatch(ctx, "review.reject_column",
+                              {"run_id": run["id"], "column_id": "s999_0"})
         assert result["ok"] is False
+
+
+class TestRejectingOneOfSeveralResults:
+    """The case rejection exists for: one source, several answers, one of them wrong.
+
+    A stash-box name search returns a list, and each answer is its own column - so the
+    first can be the scene and the second a different film. Rejecting has to be able to
+    strike out the second without touching the first.
+    """
+
+    def prepared(self, fd_repo, fd_scene):
+        config = settings.parse({"stashboxNameSearch": True})
+        ctx, client = context(fd_repo, config, fd_scene, {
+            STASHDB + "?query": [
+                scraped(title="The Right Scene", date="2024-01-17"),
+                scraped(title="A Different Film", date="1999-05-05"),
+            ],
+        })
+        discovery.Runner(client, fd_repo, config).run(295)
+        run = fd_repo.latest_run(295)
+        review = ops.dispatch(ctx, "review.get", {"run_id": run["id"]})
+        return ctx, run, review
+
+    def test_one_source_can_produce_several_columns(self, fd_repo, fd_scene):
+        _ctx, _run, review = self.prepared(fd_repo, fd_scene)
+        names = [column["name"] for column in review["columns"]]
+        assert "StashDB (search)" in names
+        assert "StashDB (search) #2" in names
+        # Both columns, one source.
+        columns = [column for column in review["columns"]
+                   if str(column["name"]).startswith("StashDB (search)")]
+        assert len({column["source_id"] for column in columns}) == 1
+
+    def test_rejecting_the_second_leaves_the_first_alone(self, fd_repo, fd_scene):
+        ctx, run, review = self.prepared(fd_repo, fd_scene)
+        second = [column for column in review["columns"]
+                  if column["name"] == "StashDB (search) #2"][0]
+
+        after = ops.dispatch(ctx, "review.reject_column",
+                             {"run_id": run["id"], "column_id": second["id"]})
+
+        titles = next(row for row in after["rows"] if row["field"] == "title")
+        shown = {value["display"] for value in titles["values"]}
+        assert "The Right Scene" in shown
+        assert "A Different Film" not in shown
+
+        first = [column for column in after["columns"]
+                 if column["name"] == "StashDB (search)"][0]
+        assert first["rejected"] is False
+        assert titles["cells"][first["id"]] is not None
+        assert titles["cells"][second["id"]] is None
+
+        # The date only the wrong answer had goes with it.
+        dates = next(row for row in after["rows"] if row["field"] == "date")
+        assert {value["display"] for value in dates["values"]} == {"2024-01-17"}

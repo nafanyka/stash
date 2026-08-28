@@ -174,7 +174,20 @@ _REJECTED_SOURCES = [
     "ALTER TABLE runs ADD COLUMN rejected_sources_json TEXT",
 ]
 
-MIGRATIONS = [_INITIAL, _REJECTED_SOURCES]
+# 3 - what gets struck out is a result, not a source.
+#
+# One source can answer with several results - a stash-box name search returns a list -
+# and they are separate columns because they are separate answers: the first can be the
+# scene and the second a different film entirely. Rejection therefore keys on the
+# column, `s<source id>_<ordinal>`, not on the source.
+#
+# `rejected_sources_json` from step 2 is left in place because migrations here are
+# forward-only and additive; nothing reads it any more.
+_REJECTED_COLUMNS = [
+    "ALTER TABLE runs ADD COLUMN rejected_columns_json TEXT",
+]
+
+MIGRATIONS = [_INITIAL, _REJECTED_SOURCES, _REJECTED_COLUMNS]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

@@ -199,12 +199,16 @@ class Repo:
                 "UPDATE runs SET status = ?, error = ?, decided_at = ? WHERE id = ?",
                 (str(status), error, now(), int(run_id)))
 
-    def set_rejected_sources(self, run_id, source_ids):
-        """Which of this run's sources the reviewer struck out."""
+    def set_rejected_columns(self, run_id, column_ids):
+        """Which of this run's result columns the reviewer struck out.
+
+        A column, not a source: one source can answer with several results, and they are
+        separate columns precisely because the first can be right and the second wrong.
+        """
         with self.connection:
             self.connection.execute(
-                "UPDATE runs SET rejected_sources_json = ? WHERE id = ?",
-                (_dumps(sorted({int(one) for one in (source_ids or [])})),
+                "UPDATE runs SET rejected_columns_json = ? WHERE id = ?",
+                (_dumps(sorted({str(one) for one in (column_ids or [])})),
                  int(run_id)))
 
     def set_selection(self, run_id, selection):
@@ -284,7 +288,8 @@ class Repo:
         run["config"] = _loads(run.pop("config_json", None), {})
         run["scene_snapshot"] = _loads(run.pop("scene_snapshot_json", None), {})
         run["selection"] = _loads(run.pop("selection_json", None), None)
-        run["rejected_sources"] = _loads(run.pop("rejected_sources_json", None), []) or []
+        run.pop("rejected_sources_json", None)      # migration 2; superseded by columns
+        run["rejected_columns"] = _loads(run.pop("rejected_columns_json", None), []) or []
         run["progress"] = _loads(run.pop("progress_json", None), {})
         run["purged"] = bool(run.get("purged"))
         run["reviewable"] = run["status"] in REVIEWABLE and not run["purged"]
@@ -308,7 +313,8 @@ class Repo:
             self.connection.execute(
                 "UPDATE runs SET purged = 1, scene_snapshot_json = NULL,"
                 " selection_json = NULL, progress_json = NULL, config_json = NULL,"
-                " rejected_sources_json = NULL WHERE id = ?", (run_id,))
+                " rejected_sources_json = NULL, rejected_columns_json = NULL"
+                " WHERE id = ?", (run_id,))
         return self.purge_orphan_images()
 
     def delete_run(self, run_id):
@@ -379,6 +385,13 @@ class Repo:
             source["handlers"] = _loads(source.pop("handlers_json", None), [])
             out.append(source)
         return out
+
+    def result_columns(self, run_id):
+        """The `s<source>_<ordinal>` id of every column this run produced."""
+        rows = self.connection.execute(
+            "SELECT source_id, ordinal FROM results WHERE run_id = ?",
+            (int(run_id),)).fetchall()
+        return {"s%s_%s" % (row["source_id"], row["ordinal"]) for row in rows}
 
     def source_counts(self, run_id):
         """{total, ok, errors} counted from the rows themselves.

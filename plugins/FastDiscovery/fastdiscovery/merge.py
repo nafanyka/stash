@@ -67,13 +67,15 @@ def build(repo, run, scene, schema_fields=None, client=None, rejected=None):
     exists to be acted on later, possibly much later, and comparing against a stale
     snapshot would offer to "keep" a value that is no longer there.
 
-    `rejected` is the set of source ids the reviewer struck out. A source that matched
+    `rejected` is the set of column ids the reviewer struck out. A result that matched
     the wrong scene is wrong about every field at once, so rejecting it drops all of its
     values from every row - and with them their votes, their entities and their images -
-    rather than leaving the reviewer to untick twenty things. Its column stays in the
-    table, greyed out, because a decision you cannot see is one you cannot take back.
+    rather than leaving the reviewer to untick twenty things. A column, not a source:
+    one source can answer with several results, and the second can be a different film
+    entirely while the first is right. The column stays in the table, greyed out,
+    because a decision you cannot see is one you cannot take back.
     """
-    rejected = {int(one) for one in (rejected or [])}
+    rejected = {str(one) for one in (rejected or [])}
     snapshot = fields.scene_snapshot(scene)
     sources = repo.sources_of(run["id"])
     results = repo.results_of(run["id"])
@@ -88,9 +90,10 @@ def build(repo, run, scene, schema_fields=None, client=None, rejected=None):
     by_source = {source["id"]: source for source in sources}
     for result in results:
         source = by_source.get(result["source_id"], {})
+        key = column_id(result["source_id"], result["ordinal"])
         columns.append({
-            "id": column_id(result["source_id"], result["ordinal"]),
-            "rejected": result["source_id"] in rejected,
+            "id": key,
+            "rejected": key in rejected,
             "type": result["source_type"],
             "name": _column_name(source, result),
             "source_id": result["source_id"],
@@ -108,9 +111,9 @@ def build(repo, run, scene, schema_fields=None, client=None, rejected=None):
     payloads = {CURRENT: snapshot["values"]}
     endpoints = {CURRENT: None}
     for result in results:
-        if result["source_id"] in rejected:
-            continue          # its values take no part in any row
         key = column_id(result["source_id"], result["ordinal"])
+        if key in rejected:
+            continue          # its values take no part in any row
         payloads[key] = result["raw"]
         endpoints[key] = result["source_endpoint"]
 
@@ -127,9 +130,8 @@ def build(repo, run, scene, schema_fields=None, client=None, rejected=None):
                   "filename": snapshot["filename"], "screenshot": snapshot["screenshot"],
                   "updated_at": snapshot["updated_at"]},
         "columns": columns,
-        "sources": [_source_summary(source, source["id"] in rejected)
-                    for source in sources],
-        "rejected_sources": sorted(rejected),
+        "sources": [_source_summary(source) for source in sources],
+        "rejected_columns": sorted(rejected),
         "rows": rows,
         "urls_graph": _graph(repo, run, by_source, results),
     }
@@ -164,9 +166,8 @@ def _parent_column(result, by_source, results):
     return None
 
 
-def _source_summary(source, rejected=False):
+def _source_summary(source):
     return {
-        "rejected": bool(rejected),
         "id": source["id"], "type": source["type"], "name": source["name"],
         "method": source["method"], "status": source["status"],
         "error": source["error"], "url": source["url"], "endpoint": source["endpoint"],

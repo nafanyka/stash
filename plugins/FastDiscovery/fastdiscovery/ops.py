@@ -256,7 +256,7 @@ def op_review_get(context, args):
         return {"ok": False, "error": "scene %s no longer exists" % run["scene_id"]}
 
     review = merge_module.build(context.repo, run, scene, context.schema_fields(),
-                                context.client, run.get("rejected_sources"))
+                                context.client, run.get("rejected_columns"))
     review["summary"] = merge_module.summarise(review)
     review["default_selection"] = merge_module.default_selection(review)
     # A selection the user saved earlier wins over the defaults, so a review survives a
@@ -268,31 +268,31 @@ def op_review_get(context, args):
     return review
 
 
-def op_reject_source(context, args):
-    """Strike a source out of the review, or put it back.
+def op_reject_column(context, args):
+    """Strike one result column out of the review, or put it back.
+
+    A column rather than a source: a source that answered with a list gets a column per
+    answer, and the point of rejecting is usually that one of them is a different scene.
 
     Stored on the run rather than held in the page: the matrix, the defaults and Apply
-    all have to agree about which sources count, and the only way to guarantee that is
+    all have to agree about which columns count, and the only way to guarantee that is
     for all three to read it from the same place.
     """
     run = _run(context, args)
     if not run or run["purged"]:
         return {"ok": False, "error": "no results to review"}
-    try:
-        source_id = int(args.get("source_id"))
-    except (TypeError, ValueError):
-        return {"ok": False, "error": "source_id is required"}
+    column = str(args.get("column_id") or "")
+    if not column:
+        return {"ok": False, "error": "column_id is required"}
+    if column not in context.repo.result_columns(run["id"]):
+        return {"ok": False, "error": "this run has no column %r" % column}
 
-    known = {source["id"] for source in context.repo.sources_of(run["id"])}
-    if source_id not in known:
-        return {"ok": False, "error": "this run has no source %s" % source_id}
-
-    rejected = set(run.get("rejected_sources") or [])
+    rejected = set(run.get("rejected_columns") or [])
     if args.get("rejected", True):
-        rejected.add(source_id)
+        rejected.add(column)
     else:
-        rejected.discard(source_id)
-    context.repo.set_rejected_sources(run["id"], rejected)
+        rejected.discard(column)
+    context.repo.set_rejected_columns(run["id"], rejected)
 
     # The selection is re-checked against the matrix the change produced, so a tick left
     # pointing at a value only the rejected source offered does not survive as a
@@ -342,7 +342,7 @@ def op_apply_preview(context, args):
         return {"ok": False, "error": "scene %s no longer exists" % run["scene_id"]}
     return apply_module.preview(context.repo, context.client, run, scene,
                                 args.get("selection"), context.schema_fields(),
-                                rejected=run.get("rejected_sources"))
+                                rejected=run.get("rejected_columns"))
 
 
 def op_apply_commit(context, args):
@@ -356,7 +356,7 @@ def op_apply_commit(context, args):
         return apply_module.commit(context.repo, context.client, run, scene,
                                    args.get("selection"), context.schema_fields(),
                                    expected_updated_at=args.get("expected_updated_at"),
-                                   rejected=run.get("rejected_sources"))
+                                   rejected=run.get("rejected_columns"))
     except apply_module.ApplyError as exc:
         # The run stays reviewable and the payload stays on disk, so Apply can simply
         # be pressed again once whatever went wrong is dealt with (requirement 20).
@@ -480,7 +480,7 @@ HANDLERS = {
     "run.delete": op_run_delete,
     "review.get": op_review_get,
     "review.save": op_review_save,
-    "review.reject_source": op_reject_source,
+    "review.reject_column": op_reject_column,
     "review.image": op_review_image,
     "apply.preview": op_apply_preview,
     "apply.commit": op_apply_commit,
