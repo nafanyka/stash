@@ -180,6 +180,19 @@ def _plan(review, selection):
             continue
         added = [value for value in picked
                  if not (value.get("is_current") or value.get("on_scene"))]
+        exclusive = row.get("exclusive_by")
+        if exclusive:
+            seen_keys = {}
+            for value in picked:
+                key = value.get(exclusive)
+                if key in seen_keys:
+                    problems.append(
+                        "%s: a scene can only hold one value per %s, but two were "
+                        "chosen for %r - pick one" % (row["field"], exclusive, key))
+                seen_keys[key] = value["id"]
+            if problems:
+                continue
+
         kept = {value["id"] for value in picked}
         removed = [by_id[one] for one in present if one not in kept]
         changes.append({

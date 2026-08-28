@@ -45,13 +45,18 @@ them when you want to.
 
 - *scalar fields* — title, date, code, director, details: click the cell you want. The
   scene's own value is selected to begin with, always;
-- *lists* — performers, tags, groups, URLs, stash ids: tick what you want from the union
-  of everything found. Existing entities are ticked; candidates that would have to be
+- *lists* — performers, tags, groups, URLs: tick what you want from the union of
+  everything found. Existing entities are ticked; candidates that would have to be
   created are not;
+- *stash ids* — a list too, but a scene holds exactly one per box, so ticking one for
+  StashDB unticks any other for StashDB;
 - *the studio* — one choice, like a scalar, and again a candidate is only created if you
   pick it;
 - *the image* — step through every distinct cover, or open the gallery to see them side by
   side. Identical covers from several sources appear once, with all of them credited.
+
+A field with nothing selected is marked in the field column, so a row you meant to fill
+and skipped does not disappear into a table twenty columns wide.
 
 Under *Sources* you get every source that was asked and what it said, including the ones
 that failed. A source failing never fails a run.

@@ -309,3 +309,54 @@ class TestSelectionSurvivesARebuild:
         assert seeing.created == []
         assert result["applied"] is False or seeing.updates[0]["tag_ids"] == ["3"]
         assert candidate["id"] in ticked
+
+
+class TestOnePerEndpoint:
+    """A scene holds one stash id per box, so two for one endpoint are alternatives.
+
+    Stash has a unique index on (scene_id, endpoint); sending two makes the write fail
+    inside the database with a constraint violation the user cannot act on. It is caught
+    here instead, before anything is created or written.
+    """
+
+    def prepared(self, fd_repo, fd_config, fd_scene):
+        fd_scene["stash_ids"] = [{"endpoint": STASHDB, "stash_id": "old-one"}]
+        return prepared(fd_repo, fd_config, fd_scene,
+                        {STASHDB: scraped(title="T", remote_site_id="new-one")})
+
+    def test_the_row_says_it_is_exclusive(self, fd_repo, fd_config, fd_scene):
+        _client, _run, review = self.prepared(fd_repo, fd_config, fd_scene)
+        assert row(review, "stash_ids")["exclusive_by"] == "endpoint"
+
+    def test_two_ids_for_one_endpoint_are_refused_before_anything_is_written(
+            self, fd_repo, fd_config, fd_scene):
+        client, run, review = self.prepared(fd_repo, fd_config, fd_scene)
+        both = [value["id"] for value in row(review, "stash_ids")["values"]]
+        assert len(both) == 2
+
+        with pytest.raises(apply_module.ApplyError) as failure:
+            apply_module.commit(fd_repo, client, run, fd_scene, {"stash_ids": both})
+        assert "one value per endpoint" in str(failure.value)
+        assert client.updates == []
+
+    def test_swapping_the_id_for_that_endpoint_works(self, fd_repo, fd_config,
+                                                     fd_scene):
+        client, run, review = self.prepared(fd_repo, fd_config, fd_scene)
+        fresh = next(value["id"] for value in row(review, "stash_ids")["values"]
+                     if value["stash_id"] == "new-one")
+        apply_module.commit(fd_repo, client, run, fd_scene, {"stash_ids": [fresh]})
+        assert client.updates[0]["stash_ids"] == [
+            {"endpoint": STASHDB, "stash_id": "new-one"}]
+
+    def test_ids_for_different_endpoints_still_coexist(self, fd_repo, fd_config,
+                                                      fd_scene):
+        fd_scene["stash_ids"] = [{"endpoint": STASHDB, "stash_id": "keep-me"}]
+        client, run, review = prepared(
+            fd_repo, fd_config, fd_scene,
+            {TPDB: scraped(title="T", remote_site_id="tpdb-one")})
+        both = [value["id"] for value in row(review, "stash_ids")["values"]]
+        apply_module.commit(fd_repo, client, run, fd_scene, {"stash_ids": both})
+        assert sorted(client.updates[0]["stash_ids"],
+                      key=lambda one: one["endpoint"]) == [
+            {"endpoint": STASHDB, "stash_id": "keep-me"},
+            {"endpoint": TPDB, "stash_id": "tpdb-one"}]

@@ -637,3 +637,21 @@
   letter-spacing: 0.05em;
   color: var(--danger, #dc3545);
 }
+
+/* ------------------------------------------------------- fields with no choice */
+
+/* A writable row where nothing is selected. Marked on the field name, which is the
+   sticky column and therefore the one part of a wide row always on screen. */
+.fd-th-field.fd-field-unset {
+  box-shadow: inset 3px 0 0 var(--warning, #ffc107);
+}
+
+.fd-field-unset .fd-field-label {
+  color: var(--warning, #ffc107);
+}
+
+.fd-unset-mark {
+  margin-left: 0.4rem;
+  font-size: 0.7em;
+  vertical-align: middle;
+}

@@ -350,6 +350,11 @@ def _stash_id_row(field, columns, payloads, endpoints, snapshot):
         "field": field.name, "kind": field.kind, "label": field.label,
         "writable": field.writable, "note": field.note,
         "values": values, "cells": cells,
+        # A scene can hold exactly one stash id per box - Stash has a unique index on
+        # (scene_id, endpoint) - so two ids for the same endpoint are alternatives, not
+        # additions. Picking one has to drop the other, or the write fails at the
+        # database with a constraint violation nobody can act on.
+        "exclusive_by": "endpoint",
         # A stash id is an identity claim about the scene, so only the ones already on
         # it are ticked. Adopting a new one is a deliberate act.
         "default": [entry["id"] for entry in values if entry["is_current"]],

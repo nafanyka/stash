@@ -837,14 +837,33 @@
               });
             });
 
+            // A writable row with nothing chosen writes nothing. That is a legitimate
+            // choice - and also exactly what an unnoticed one looks like - so the field
+            // name says so rather than leaving it to be spotted by scanning the row.
+            var unset = row.writable &&
+              (isList ? !(chosen && chosen.length) : !chosen);
+
             var rows = [
               h(
                 "tr",
                 { key: row.field, className: cx("fd-row", !row.writable && "fd-row-readonly") },
                 h(
                   "th",
-                  { className: "fd-th-field", scope: "row" },
-                  h("div", { className: "fd-field-label" }, row.label),
+                  {
+                    className: cx("fd-th-field", unset && "fd-field-unset"),
+                    scope: "row",
+                    title: unset
+                      ? (isList
+                          ? "Nothing selected - this field will be left empty"
+                          : "Nothing selected - this field will be left as it is")
+                      : undefined
+                  },
+                  h(
+                    "div",
+                    { className: "fd-field-label" },
+                    row.label,
+                    unset ? h("span", { className: "fd-unset-mark" }, "○") : null
+                  ),
                   !row.writable
                     ? h(
                         "div",
@@ -950,7 +969,7 @@
       return h(Decided, {
         outcome: decided[0],
         onRescan: function () { starter.start([Number(sceneId)], true); },
-        onBack: history ? function () { history.push(BASE); } : null,
+        showBack: !props.sceneId,
         busy: starter.busy,
         confirming: starter.confirming,
         onCancelConfirm: starter.cancelConfirm,
@@ -993,8 +1012,24 @@
       var next = Object.assign({}, selection[0]);
       var list = (next[field] || []).slice();
       var at = list.indexOf(id);
-      if (at >= 0) list.splice(at, 1);
-      else list.push(id);
+      if (at >= 0) {
+        list.splice(at, 1);
+      } else {
+        var row = data.rows.filter(function (one) { return one.field === field; })[0];
+        // Some list rows can hold only one value per key - a scene has exactly one
+        // stash id per box, and Stash enforces that with a unique index. Ticking one
+        // therefore unticks its rival instead of queueing a write that fails in the
+        // database.
+        if (row && row.exclusive_by) {
+          var byId = {};
+          row.values.forEach(function (value) { byId[value.id] = value; });
+          var key = (byId[id] || {})[row.exclusive_by];
+          list = list.filter(function (other) {
+            return (byId[other] || {})[row.exclusive_by] !== key;
+          });
+        }
+        list.push(id);
+      }
       next[field] = list;
       selection[1](next);
     }
@@ -1044,13 +1079,20 @@
                 " field(s) to this scene."
               : "FastDiscovery results rejected. The scene was not touched.";
           toaster.success(message);
+          announceChange();
+          if (history && !props.sceneId) {
+            // The review had a page to itself, which now has nothing to show. The toast
+            // already said what happened, so go back to the list rather than parking on
+            // a dead end that needs one more click.
+            history.push(BASE);
+            return;
+          }
           decided[1]({
             action: op === "apply.commit" ? "applied" : "rejected",
             message: message,
             changes: result.changes || [],
             created: result.created || {}
           });
-          announceChange();
         },
         function (failure) {
           busy[1](null);
@@ -1084,17 +1126,13 @@
             " · " + data.summary.urls + " URL(s)"
           )
         ),
-        history
-          ? h(
+        props.sceneId
+          ? null
+          : h(
               "div",
               { className: "fd-actions" },
-              h(
-                "button",
-                { className: "btn btn-link", onClick: function () { history.push(BASE); } },
-                "All runs"
-              )
+              h(Router.NavLink, { className: "btn btn-link", to: BASE }, "All runs")
             )
-          : null
       ),
       h(Problem, { error: problem[0] || starter.error }),
       data.run.stop_reason
@@ -1196,8 +1234,8 @@
         h(
           "div",
           { className: "fd-actions" },
-          props.onBack
-            ? h("button", { className: "btn btn-primary", onClick: props.onBack },
+          props.showBack
+            ? h(Router.NavLink, { className: "btn btn-primary", to: BASE },
                 "Back to FastDiscovery")
             : null,
           h(
@@ -1399,12 +1437,10 @@
                     { className: "fd-row-actions" },
                     run.reviewable
                       ? h(
-                          "button",
+                          Router.NavLink,
                           {
                             className: "btn btn-sm btn-primary",
-                            onClick: function () {
-                              if (history) history.push(BASE + "/scene/" + run.scene_id);
-                            }
+                            to: BASE + "/scene/" + run.scene_id
                           },
                           "Review"
                         )
