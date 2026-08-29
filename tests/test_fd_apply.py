@@ -51,7 +51,9 @@ class TestNothingHappensByDefault:
             STASHDB: scraped(title="New", code="ABC")})
         apply_module.commit(fd_repo, client, run, fd_scene,
                             {"title": value_id(review, "title", "New")})
-        assert sorted(client.updates[0]) == ["id", "title"]
+        # tag_ids carries the FastDiscovery marker, which every apply adds. `code` was
+        # scraped and not selected, so it is not in the write at all.
+        assert sorted(client.updates[0]) == ["id", "tag_ids", "title"]
 
 
 class TestScalars:
@@ -137,12 +139,92 @@ class TestEntities:
             self, fd_repo, fd_config, fd_scene):
         client, run, review = prepared(
             fd_repo, fd_config, fd_scene, {STASHDB: scraped(tags=["Known Tag"])},
-            entities={"tag": {"Known Tag": [{"id": "77", "name": "Known Tag"}]}})
+            entities={"tag": {"Known Tag": [{"id": "77", "name": "Known Tag"}],
+                              # The marker already exists here, so this test stays
+                              # about the scraped tag and nothing else.
+                              "FastDiscovery": [{"id": "9", "name": "FastDiscovery"}]}})
         tags = row(review, "tags")
         apply_module.commit(fd_repo, client, run, fd_scene,
                             {"tags": [entity["id"] for entity in tags["values"]]})
         assert client.created == []
-        assert sorted(client.updates[0]["tag_ids"]) == ["3", "77"]
+        assert sorted(client.updates[0]["tag_ids"]) == ["3", "77", "9"]
+
+
+class TestTheMarkerTag:
+    """Every apply leaves the scene tagged FastDiscovery, and nothing else does.
+
+    The point of the tag is to tell a scene FastDiscovery has written to apart from one
+    it has never touched, so it is written by exactly the operation that writes.
+    """
+
+    def test_an_applied_scene_comes_out_tagged(self, fd_repo, fd_config, fd_scene):
+        client, run, review = prepared(fd_repo, fd_config, fd_scene,
+                                       {STASHDB: scraped(title="New")})
+        result = apply_module.commit(fd_repo, client, run, fd_scene,
+                                     {"title": value_id(review, "title", "New")})
+        assert client.created == [("tag", {"name": "FastDiscovery"})]
+        assert result["marker"]["created"] is True
+        # The tag the scene already had is still there: marking adds one, removes none.
+        assert client.updates[0]["tag_ids"] == ["3", "new-tag-1"]
+
+    def test_a_marker_stash_already_has_is_linked_not_created(self, fd_repo, fd_config,
+                                                              fd_scene):
+        client, run, review = prepared(
+            fd_repo, fd_config, fd_scene, {STASHDB: scraped(title="New")},
+            entities={"tag": {"FastDiscovery": [{"id": "42",
+                                                 "name": "FastDiscovery"}]}})
+        result = apply_module.commit(fd_repo, client, run, fd_scene,
+                                     {"title": value_id(review, "title", "New")})
+        assert client.created == []
+        assert result["marker"] == {"id": "42", "name": "FastDiscovery",
+                                    "created": False}
+        assert client.updates[0]["tag_ids"] == ["3", "42"]
+
+    def test_a_scene_that_already_carries_it_is_left_alone(self, fd_repo, fd_config,
+                                                           fd_scene):
+        scene = dict(fd_scene, tags=[{"id": "3", "name": "Existing Tag"},
+                                     {"id": "42", "name": "FastDiscovery"}])
+        client, run, review = prepared(fd_repo, fd_config, scene,
+                                       {STASHDB: scraped(title="New")})
+        result = apply_module.commit(fd_repo, client, run, scene,
+                                     {"title": value_id(review, "title", "New")})
+        # Nothing to add, and tags were not being written, so tag_ids stays out of the
+        # update entirely rather than being rewritten with itself.
+        assert "tag_ids" not in client.updates[0]
+        assert result["marker"] is None
+        assert client.created == []
+
+    def test_it_joins_the_tags_that_were_ticked(self, fd_repo, fd_config, fd_scene):
+        client, run, review = prepared(fd_repo, fd_config, fd_scene,
+                                       {STASHDB: scraped(tags=["Known Tag"])},
+                                       entities={"tag": {"Known Tag": [
+                                           {"id": "77", "name": "Known Tag"}]}})
+        ticked = [entity["id"] for entity in row(review, "tags")["values"]]
+        apply_module.commit(fd_repo, client, run, fd_scene, {"tags": ticked})
+        assert client.updates[0]["tag_ids"] == ["3", "77", "new-tag-1"]
+
+    def test_unticking_a_tag_still_removes_it(self, fd_repo, fd_config, fd_scene):
+        """The marker is added to the reviewed set, it does not preserve it."""
+        client, run, review = prepared(fd_repo, fd_config, fd_scene,
+                                       {STASHDB: scraped(title="New")})
+        apply_module.commit(fd_repo, client, run, fd_scene, {"tags": []})
+        assert client.updates[0]["tag_ids"] == ["new-tag-1"]
+
+    def test_nothing_selected_means_no_tag_either(self, fd_repo, fd_config, fd_scene):
+        client, run, review = prepared(fd_repo, fd_config, fd_scene,
+                                       {STASHDB: scraped(title="New")})
+        result = apply_module.commit(fd_repo, client, run, fd_scene,
+                                     merge.default_selection(review))
+        assert result["applied"] is False
+        assert client.updates == []
+        assert client.created == []
+
+    def test_a_rejected_run_leaves_no_mark(self, fd_repo, fd_config, fd_scene):
+        client, run, _review = prepared(fd_repo, fd_config, fd_scene,
+                                        {STASHDB: scraped(title="New")})
+        apply_module.reject(fd_repo, run)
+        assert client.updates == []
+        assert client.created == []
 
 
 class TestListsAndImages:
@@ -406,7 +488,9 @@ class TestNeverCreatesWhatAlreadyExists:
 
         client_a, result_a = self.apply_all_tags(fd_repo, fd_config, first,
                                                  ["Brand New Tag"], library)
-        assert [values["name"] for _kind, values in client_a.created] == ["Brand New Tag"]
+        # The ticked tag, and the marker every apply adds - both new to this library.
+        assert [values["name"] for _kind, values in client_a.created] == [
+            "Brand New Tag", "FastDiscovery"]
         assert result_a["created"]["tag"][0]["name"] == "Brand New Tag"
 
         client_b, result_b = self.apply_all_tags(fd_repo, fd_config, second,
@@ -415,8 +499,8 @@ class TestNeverCreatesWhatAlreadyExists:
         assert result_b["created"] == {}
         # Small enough to be inside the review's lookup budget, so the second review
         # already knew it existed and it never reached the create stage at all - the
-        # scene simply links the id the first one made.
-        assert client_b.updates[0]["tag_ids"] == ["tag-1"]
+        # scene simply links the id the first one made. The marker is linked too.
+        assert client_b.updates[0]["tag_ids"] == ["tag-1", "tag-2"]
 
     def test_it_holds_past_the_reviews_lookup_budget(self, fd_repo, fd_config,
                                                      fd_scene):

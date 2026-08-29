@@ -29,6 +29,13 @@ from . import fields, logs, merge as merge_module
 from .db import repo as R
 
 
+# The mark an applied scene carries afterwards. A plain tag, so it is filterable in
+# Stash like any other, and the only thing Apply writes that the reviewer did not tick.
+# It is added by name, not by id: the tag may not exist yet on a fresh library, and it
+# may have been deleted and remade since the last apply.
+MARKER_TAG = "FastDiscovery"
+
+
 class ApplyError(RuntimeError):
     """The selection could not be turned into a write. Nothing was changed."""
 
@@ -39,6 +46,7 @@ def preview(repo, client, run, scene, selection, schema_fields=None, rejected=No
     plan = _plan(review, selection)
     return {"changes": plan["changes"], "creates": plan["creates"],
             "unchanged": plan["unchanged"], "problems": plan["problems"],
+            "will_tag": None if _has_marker(scene) else MARKER_TAG,
             "scene_updated_at": review["scene"]["updated_at"]}
 
 
@@ -63,11 +71,17 @@ def commit(repo, client, run, scene, selection, schema_fields=None,
     if plan["problems"]:
         raise ApplyError("; ".join(plan["problems"]))
     if not plan["changes"] and not plan["creates"]:
+        # Nothing was selected that would change anything, so nothing is written - not
+        # even the marker. An apply that writes nothing is not an apply: the review
+        # stays open and the scene is left exactly as it was.
         return {"applied": False, "reason": "nothing was selected that would change "
                                             "the scene", "changes": [], "created": {}}
 
     created, linked = _create_entities(client, plan["creates"])
     values = _scene_update_input(repo, review, plan)
+    # A scene that has been applied to carries the mark afterwards, so it can be told
+    # apart in Stash from one FastDiscovery has never touched.
+    marker = _mark_applied(client, scene, values, _has_marker(scene))
     values["id"] = str(run["scene_id"])
 
     logs.info("scene %s: applying %s"
@@ -88,11 +102,11 @@ def commit(repo, client, run, scene, selection, schema_fields=None,
 
     repo.add_application(run["id"], run["scene_id"], "APPLIED",
                          [one["field"] for one in plan["changes"]],
-                         {"created": created, "linked": linked})
+                         {"created": created, "linked": linked, "marker": marker})
     repo.set_run_status(run["id"], R.APPLIED)
     repo.purge_run(run["id"])
     return {"applied": True, "changes": plan["changes"], "created": created,
-            "linked": linked, "fields": sorted(values)}
+            "linked": linked, "marker": marker, "fields": sorted(values)}
 
 
 def reject(repo, run):
@@ -283,6 +297,54 @@ def _resolve_or_create(client, kind, entity):
     if record is None:
         raise ApplyError("could not create %s %r" % (kind, entity["name"]))
     return record, True
+
+
+def _has_marker(scene):
+    """Is the scene already tagged, by name?
+
+    Read off the live scene rather than the review, for two reasons: the tags row is
+    absent altogether from a review where neither the scene nor any result had tags,
+    and this has to be true of the scene as it is now, not of the matrix.
+
+    By name, because the common case then costs no lookup at all: the tags a scene
+    carries either include one called FastDiscovery or they do not.
+    """
+    target = fields.canon_name(MARKER_TAG)
+    return any(fields.canon_name(tag.get("name")) == target
+               for tag in ((scene or {}).get("tags") or []))
+
+
+def _mark_applied(client, scene, values, marked):
+    """Put the FastDiscovery tag into the write, creating it the first time.
+
+    Returns what was added, or None when the scene keeps the tag it already had and
+    this write does not touch tags at all - there is nothing to say and nothing to do.
+
+    The tag joins the same `tag_ids` the reviewed selection produced, never a second
+    mutation: a scene must not be able to come out of Apply marked as dealt with while
+    half of what was ticked failed to write.
+
+    When the selection did not touch tags, `tag_ids` is built from the tags the scene
+    has right now, so marking it adds one tag and removes none.
+    """
+    if marked and "tag_ids" not in values:
+        return None
+
+    wanted = ([str(one) for one in values["tag_ids"]] if "tag_ids" in values
+              else [str(tag["id"]) for tag in ((scene or {}).get("tags") or [])
+                    if tag.get("id")])
+
+    record, was_created = _resolve_or_create(
+        client, "tag", {"name": MARKER_TAG, "canon": fields.canon_name(MARKER_TAG)})
+    marker_id = str(record["id"])
+    if marker_id in wanted:
+        return None
+    wanted.append(marker_id)
+    values["tag_ids"] = wanted
+    logs.info("tagged scene %s as %s"
+              % ((scene or {}).get("id"), record.get("name") or MARKER_TAG))
+    return {"id": marker_id, "name": record.get("name") or MARKER_TAG,
+            "created": was_created}
 
 
 def _create_one(client, kind, entity):

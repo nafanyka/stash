@@ -451,17 +451,7 @@
 
     if (row.kind === "image") {
       if (!valueId) {
-        return h(
-          "td",
-          { className: "fd-cell fd-cell-image fd-cell-empty" },
-          props.onReject
-            ? h(RejectToggle, {
-                column: column,
-                busy: props.busy,
-                onReject: props.onReject
-              })
-            : null
-        );
+        return h("td", { className: "fd-cell fd-cell-image fd-cell-empty" }, "");
       }
       var image = props.byId[valueId];
       var isSelected = chosen === valueId;
@@ -472,12 +462,7 @@
                         isSelected && "fd-cell-selected"),
           onClick: function () { props.onPick(valueId); }
         },
-        h(Thumbnail, { candidate: image, size: "small" }),
-        // A cover that is plainly a different scene is the quickest way to see that a
-        // whole result is wrong, so the way to drop it sits right under the picture.
-        props.onReject
-          ? h(RejectToggle, { column: column, busy: props.busy, onReject: props.onReject })
-          : null
+        h(Thumbnail, { candidate: image, size: "small" })
       );
     }
 
@@ -638,8 +623,7 @@
 
   /* --------------------------------------------------------------- rejecting */
 
-  // One result of one source, struck out. The same control appears twice: in the
-  // column header, and beside that column's preview in the Image row.
+  // One result of one source, struck out. Lives in that column's header.
   function RejectToggle(props) {
     var column = props.column;
     return h(
@@ -648,9 +632,7 @@
         className: cx("fd-reject", column.rejected && "fd-reject-on"),
         title: column.rejected
           ? "Rejected: nothing in this column is counted. Untick to bring it back."
-          : "Reject this result - drops everything it said from every row",
-        // In the Image row the cell itself picks the cover; rejecting it is not that.
-        onClick: function (event) { event.stopPropagation(); }
+          : "Reject this result - drops everything it said from every row"
       },
       h("input", {
         type: "checkbox",
@@ -862,19 +844,8 @@
             var cells = review.columns.map(function (column) {
               if (column.rejected) {
                 // Shown, so the choice is visible and reversible; empty, because
-                // nothing this source said counts any more. The Image row keeps its
-                // toggle, so it can be undone where it was done.
-                return h(
-                  "td",
-                  { key: column.id, className: "fd-cell fd-column-rejected" },
-                  row.kind === "image" && onReject
-                    ? h(RejectToggle, {
-                        column: column,
-                        busy: props.busy,
-                        onReject: onReject
-                      })
-                    : null
-                );
+                // nothing this source said counts any more.
+                return h("td", { key: column.id, className: "fd-cell fd-column-rejected" });
               }
               return h(ValueCell, {
                 key: column.id,
@@ -882,10 +853,6 @@
                 column: column,
                 byId: byId,
                 chosen: chosen,
-                busy: props.busy,
-                onReject: row.kind === "image" && onReject && column.id !== "current"
-                  ? onReject
-                  : null,
                 onPick: function (id) { props.onPick(row.field, id); },
                 onToggle: function (id) { props.onToggle(row.field, id); }
               });
@@ -1130,7 +1097,11 @@
           var message =
             op === "apply.commit"
               ? "FastDiscovery applied " + (result.changes || []).length +
-                " field(s) to this scene."
+                " field(s) to this scene." +
+                // Apply also tags the scene, so it can be told apart later from one
+                // FastDiscovery has never written to. Said out loud, because it is the
+                // one change nobody ticked.
+                (result.marker ? " Tagged " + result.marker.name + "." : "")
               : "FastDiscovery results rejected. The scene was not touched.";
           toaster.success(message);
           announceChange();
@@ -1146,7 +1117,8 @@
             message: message,
             changes: result.changes || [],
             created: result.created || {},
-            linked: result.linked || {}
+            linked: result.linked || {},
+            marker: result.marker || null
           });
         },
         function (failure) {
@@ -1290,7 +1262,8 @@
               "Fields written: " +
                 outcome.changes.map(function (change) { return change.field; }).join(", ") +
                 (createdLine ? ". Created: " + createdLine : "") +
-                (linkedLine ? ". Already existed, linked: " + linkedLine : "") + "."
+                (linkedLine ? ". Already existed, linked: " + linkedLine : "") + "." +
+                (outcome.marker ? " Tagged " + outcome.marker.name + "." : "")
             )
           : null,
         h(
@@ -1371,6 +1344,10 @@
     var listing = useOp("run.list",
                         { tab: tab[0], page: page[0], per_page: perPage[0] });
     var history = Router.useHistory ? Router.useHistory() : null;
+    // The run currently being decided from this list, so its two buttons cannot be
+    // pressed twice while the call is out.
+    var deciding = React.useState(null);
+    var toaster = useToaster();
 
     // A decision taken in a review that is open at the same time - on the scene page,
     // or in another tab of this browser - moves a run out of this list, so listen for
@@ -1382,6 +1359,30 @@
       },
       [listing.reload]
     );
+
+    // Rejecting without opening the review. A run whose scene is plainly wrong -
+    // nothing found, or one look at the source list is enough - does not need a table
+    // read end to end before it can be thrown away.
+    //
+    // No confirmation: the whole point is that it is cheaper than opening the review,
+    // and nothing is written to the scene either way. What it does destroy is the
+    // stored results, which is what Reject means everywhere else in FastDiscovery.
+    function rejectRun(run) {
+      deciding[1](run.id);
+      callOp("run.reject", { run_id: run.id }).then(
+        function () {
+          deciding[1](null);
+          toaster.success("Results rejected. The scene was not touched.");
+          // The list reloads through its own CHANGED_EVENT listener, which also
+          // refreshes any scene tab open on the same run.
+          announceChange();
+        },
+        function (failure) {
+          deciding[1](null);
+          toaster.failure(failure.message);
+        }
+      );
+    }
 
     function choosePerPage(value) {
       savePerPage(value);
@@ -1507,13 +1508,34 @@
                           "Review"
                         )
                       : null,
+                    run.reviewable
+                      ? h(
+                          "button",
+                          {
+                            className: "btn btn-sm btn-secondary",
+                            disabled: deciding[0] === run.id,
+                            title: "Throw these results away without opening them. " +
+                              "The scene is not touched.",
+                            onClick: function () { rejectRun(run); }
+                          },
+                          deciding[0] === run.id ? "Rejecting..." : "Reject"
+                        )
+                      : null,
                     !run.reviewable && !run.purged
                       ? h(
                           "button",
                           {
                             className: "btn btn-sm btn-secondary",
+                            disabled: deciding[0] === run.id,
                             onClick: function () {
-                              callOp("run.delete", { run_id: run.id }).then(listing.reload);
+                              deciding[1](run.id);
+                              callOp("run.delete", { run_id: run.id }).then(
+                                function () { deciding[1](null); announceChange(); },
+                                function (failure) {
+                                  deciding[1](null);
+                                  toaster.failure(failure.message);
+                                }
+                              );
                             }
                           },
                           "Dismiss"

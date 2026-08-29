@@ -237,12 +237,6 @@ out independently.
 The column stays in the table, dimmed and hatched, because a decision you cannot see is
 one you cannot take back.
 
-The same toggle sits under each cover in the **Image** row, because that is where a wrong
-result is usually spotted: a cover that is obviously a different film settles the whole
-column without reading a single field. Rejecting from there rebuilds the table exactly as
-rejecting from the header does, and the toggle stays in the dimmed cell so it can be
-undone where it was done.
-
 The set is stored on the run (`runs.rejected_columns_json`), not held in the page, for
 one reason: the matrix, the defaults and Apply all have to agree about which columns
 count. Apply rebuilds the review with the same set, so it can only ever write something the
@@ -299,9 +293,40 @@ If the update fails, nothing is deleted: the run becomes `FAILED_APPLY`, stays r
 and Apply can be pressed again. Entities created before the failure are named in the audit
 row.
 
+### The FastDiscovery tag
+
+An applied scene comes out carrying a tag called **FastDiscovery**, created the first time
+one is applied to. It is the only thing Apply writes that nobody ticked, and it exists so
+a scene FastDiscovery has written to can be told apart in Stash from one it has never
+touched - filterable like any other tag.
+
+Three things it deliberately is not:
+
+* **not a second mutation.** The tag joins the same `tag_ids` the reviewed selection
+  produced, so a scene cannot come out marked as dealt with while half of what was ticked
+  failed to write. When the selection did not touch tags at all, `tag_ids` is built from
+  the tags the scene has right now, so marking adds one tag and removes none.
+* **not written when nothing else is.** Apply with nothing selected stays what it was -
+  no write, review left open. An apply that writes nothing is not an apply, and a tag
+  saying otherwise would be a lie about the scene.
+* **not added by Reject, and not re-added when it is already there.** A scene that already
+  carries the tag and whose selection does not touch tags gets no `tag_ids` in its update
+  at all.
+
+The tag is found by name, not by id, so deleting it in Stash is not a broken state: the
+next apply simply makes it again. Renaming it, on the other hand, makes the next apply
+create a fresh one under the old name.
+
 Reject writes nothing and deletes the payload. Rescan replaces an undecided run, after a
 confirmation the API enforces: `run.start` refuses a scene that already has results waiting
 unless the caller passes `replace`.
+
+Reject is also on every reviewable row of the run list, next to Review, and does exactly
+what the button in the review does - the same `run.reject`. A run that found nothing worth
+reading is not worth opening first, and the list is where that is obvious. There is no
+confirmation, on purpose: it is meant to be cheaper than opening the review, and the scene
+is untouched either way. What it does destroy is the stored results, which is what Reject
+means everywhere else here.
 
 ### What survives a decision (requirement 24)
 

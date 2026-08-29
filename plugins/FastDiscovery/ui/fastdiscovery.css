@@ -403,11 +403,6 @@
   height: auto;
 }
 
-.fd-cell-image .fd-reject {
-  display: flex;
-  margin-top: 0.4rem;
-}
-
 .fd-thumb-gallery {
   width: 100%;
   max-width: 100%;
