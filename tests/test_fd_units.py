@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from fd_common import SCRAPERS
 
-from fastdiscovery import fields, registry, settings, urls
+from fastdiscovery import fields, registry, settings, stash, urls
 
 
 class TestUrlNormalisation:
@@ -219,3 +219,61 @@ class TestProgressProtocol:
         from fastdiscovery import logs
         logs.info("hello")
         assert capsys.readouterr().err == "\x01i\x02[FastDiscovery] hello\n"
+
+
+class TestTheNameLookupQuery:
+    """The query that decides whether an entity already exists.
+
+    It is worth a test of its own because getting it wrong is silent: a query the
+    server rejects and a library that genuinely holds nothing look identical to
+    everything downstream, and the first visible symptom is Apply failing to create
+    something that was there all along.
+    """
+
+    # What each argument of findTags/findPerformers/... actually takes. `filter` is
+    # paging and is the same type everywhere; the entity's own filter goes in the
+    # argument named after it.
+    ARGUMENT_TYPES = {
+        "filter": "FindFilterType",
+        "tag_filter": "TagFilterType",
+        "performer_filter": "PerformerFilterType",
+        "studio_filter": "StudioFilterType",
+        "group_filter": "GroupFilterType",
+    }
+
+    def queries(self):
+        """Every lookup query the client would send, without sending any."""
+        sent = []
+        client = stash.Client("http://stash.invalid/graphql")
+        client.try_call = lambda query, variables=None, timeout=None: (
+            sent.append((query, variables)) or {})
+        for method in ("find_tags_by_names", "find_performers_by_names",
+                       "find_studios_by_names", "find_groups_by_names"):
+            getattr(client, method)(["Couple Sex (Straight)"])
+        return sent
+
+    def test_every_variable_is_declared_as_the_type_it_is_used_as(self):
+        import re
+
+        for query, _variables in self.queries():
+            declared = dict(re.findall(r"\$(\w+): (\w+)", query))
+            for argument, variable in re.findall(r"(\w+): \$(\w+)", query):
+                expected = self.ARGUMENT_TYPES.get(argument)
+                if expected is None:
+                    continue
+                assert declared[variable] == expected, (
+                    "%s: takes %s, but $%s is declared %s - the server rejects the "
+                    "whole query and the lookup silently answers 'nothing found'"
+                    % (argument, expected, variable, declared[variable]))
+
+    def test_the_name_is_matched_exactly_and_the_entity_filter_is_used(self):
+        for query, variables in self.queries():
+            assert "modifier: EQUALS" in query
+            assert variables["name"] == "Couple Sex (Straight)"
+
+    def test_a_rejected_query_is_not_reported_as_an_empty_library(self, capsys):
+        """A lookup that could not be asked says so, instead of answering 'no'."""
+        client = stash.Client("http://stash.invalid/graphql")
+        client.try_call = lambda query, variables=None, timeout=None: None
+        assert client.find_tags_by_names(["Known Tag"]) == {"Known Tag": []}
+        assert "name matching is degraded" in capsys.readouterr().err

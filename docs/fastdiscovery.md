@@ -282,6 +282,19 @@ reported as one.
 The result says which entities were created and which turned out to exist already, so
 "created 3" on one scene and "created 0" on the next is not a mystery.
 
+All of which rests on the lookup actually working, and for several versions it did not.
+`findTags(tag_filter: {...}, filter: $filter)` takes a `FindFilterType` for `filter` -
+that argument is paging, not the entity's own filter, which goes inline above it.
+Declaring the variable as `TagFilterType` is a GraphQL *validation* error: the server
+rejects the query before running it, and this client turns a rejected query into an empty
+answer. Every name lookup therefore reported that nothing existed, which is
+indistinguishable from a library that really has nothing - until Apply created a tag Stash
+already had and the mutation failed.
+
+A lookup that could not be asked now says so in the log (`name matching is degraded`)
+instead of answering "no", and a unit test asserts that every variable in these queries is
+declared as the type it is used as.
+
 ### Apply, step by step
 
 Apply, in order: rebuild the review against the live scene → drop the no-ops → create only

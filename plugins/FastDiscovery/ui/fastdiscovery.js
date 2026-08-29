@@ -34,6 +34,17 @@
   var Nav = Bootstrap.Nav;
   var Tab = Bootstrap.Tab;
   var Modal = Bootstrap.Modal;
+  var Button = Bootstrap.Button;
+
+  // Stash's own nav items are FontAwesome icons over a label, so the menu entry is
+  // built out of the same pieces rather than approximated. Both libraries are part of
+  // PluginApi; the icon is optional, because a missing one should cost the label, not
+  // the whole menu item.
+  var FontAwesome = api.libraries.ReactFontAwesome;
+  var Solid = api.libraries.FontAwesomeSolid || {};
+  // FA6 renamed the magnifier; the old name is still exported as an alias by some
+  // builds, and a plain compass is a reasonable last resort for "go and find things".
+  var NAV_ICON = Solid.faMagnifyingGlass || Solid.faSearch || Solid.faCompass || null;
 
   var PLUGIN_ID = "FastDiscovery";
   var BASE = "/fast-discovery";
@@ -1873,6 +1884,13 @@
   api.register.route(BASE + "/settings", SettingsPage);
   api.register.route(BASE + "/scene/:id", ReviewPage);
 
+  // Built to match what Stash renders for Scenes, Performers and the rest, class for
+  // class: a Nav.Link wrapper carrying the responsive column widths, and inside it a
+  // minimal primary Button that is really a router link. Anything less and the entry
+  // sits in the menu looking like it was bolted on afterwards.
+  //
+  // Not `exact`: the item stays lit while you are inside a review, which is a
+  // FastDiscovery page like any other.
   api.patch.before("MainNavBar.MenuItems", function (props) {
     return [
       Object.assign({}, props, {
@@ -1881,14 +1899,30 @@
           null,
           props.children,
           h(
-            Router.NavLink,
+            Nav.Link,
             {
-              className: "nav-utility minimal btn btn-primary",
-              exact: true,
-              to: BASE,
-              title: "FastDiscovery"
+              as: "div",
+              eventKey: BASE,
+              className: "col-4 col-sm-3 col-md-2 col-lg-auto"
             },
-            h("span", null, "FastDiscovery")
+            h(
+              Button,
+              {
+                as: Router.NavLink,
+                to: BASE,
+                variant: "primary",
+                className: "minimal p-4 p-xl-2 d-flex d-xl-inline-block flex-column " +
+                  "justify-content-between align-items-center",
+                title: "FastDiscovery"
+              },
+              NAV_ICON && FontAwesome
+                ? h(FontAwesome.FontAwesomeIcon, {
+                    icon: NAV_ICON,
+                    className: "fa-icon nav-menu-icon d-block d-xl-inline mb-2 mb-xl-0"
+                  })
+                : null,
+              h("span", null, "FastDiscovery")
+            )
           )
         )
       })

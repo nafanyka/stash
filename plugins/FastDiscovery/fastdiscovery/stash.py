@@ -31,6 +31,8 @@ import socket
 import urllib.error
 import urllib.request
 
+from . import logs
+
 DEFAULT_TIMEOUT = 30.0
 
 
@@ -256,30 +258,46 @@ class Client:
         would be a handful of process-blocking round trips.
         """
         return self._find_by_names(
-            "findPerformers", "performer_filter", "PerformerFilterType",
+            "findPerformers", "performer_filter",
             "performers { id name disambiguation }", names)
 
     def find_tags_by_names(self, names):
-        return self._find_by_names("findTags", "tag_filter", "TagFilterType",
-                                   "tags { id name }", names)
+        return self._find_by_names("findTags", "tag_filter", "tags { id name }", names)
 
     def find_studios_by_names(self, names):
-        return self._find_by_names("findStudios", "studio_filter", "StudioFilterType",
+        return self._find_by_names("findStudios", "studio_filter",
                                    "studios { id name }", names)
 
     def find_groups_by_names(self, names):
-        return self._find_by_names("findGroups", "group_filter", "GroupFilterType",
+        return self._find_by_names("findGroups", "group_filter",
                                    "groups { id name }", names)
 
-    def _find_by_names(self, query_name, filter_arg, filter_type, selection, names):
+    def _find_by_names(self, query_name, filter_arg, selection, names):
+        """name -> the records carrying exactly that name.
+
+        `filter` is the paging argument and is a `FindFilterType` for every one of these
+        queries - it is not the entity's own filter type, which goes in inline above it.
+        Declaring the variable as, say, `TagFilterType` is a GraphQL *validation* error:
+        the server rejects the whole query before running it, and this client turns a
+        rejected query into an empty answer. Every name lookup then reports that nothing
+        exists, which reads exactly like a library that really has nothing - until Apply
+        tries to create it and Stash says it is already there.
+        """
         found = {}
         for name in {str(one).strip() for one in (names or []) if str(one).strip()}:
             data = self.try_call(
-                "query($name: String!, $filter: %s) { %s(%s: {name: {value: $name,"
-                " modifier: EQUALS}}, filter: $filter) { %s } }"
-                % (filter_type, query_name, filter_arg, selection),
+                "query($name: String!, $filter: FindFilterType) { %s(%s: {name:"
+                " {value: $name, modifier: EQUALS}}, filter: $filter) { %s } }"
+                % (query_name, filter_arg, selection),
                 {"name": name, "filter": {"per_page": 10}}, timeout=20)
-            container = (data or {}).get(query_name) or {}
+            if data is None:
+                # Not "no such record": the question never got an answer. Said out loud,
+                # because the cost of failing quietly here is entities created twice.
+                logs.warning("%s could not be asked about %r - name matching is degraded"
+                          % (query_name, name))
+                found[name] = []
+                continue
+            container = data.get(query_name) or {}
             rows = next((value for value in container.values()
                          if isinstance(value, list)), [])
             found[name] = rows
