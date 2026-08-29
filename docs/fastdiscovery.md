@@ -237,12 +237,24 @@ out independently.
 The column stays in the table, dimmed and hatched, because a decision you cannot see is
 one you cannot take back.
 
+The same toggle sits under each cover in the **Image** row, because that is where a wrong
+result is usually spotted: a cover that is obviously a different film settles the whole
+column without reading a single field. Rejecting from there rebuilds the table exactly as
+rejecting from the header does, and the toggle stays in the dimmed cell so it can be
+undone where it was done.
+
 The set is stored on the run (`runs.rejected_columns_json`), not held in the page, for
 one reason: the matrix, the defaults and Apply all have to agree about which columns
 count. Apply rebuilds the review with the same set, so it can only ever write something the
 reviewer actually saw. A tick left pointing at a value only the rejected column
 offered is dropped when the matrix is rebuilt - and for a single-choice row, which would
 otherwise be left selecting nothing, the row falls back to its default.
+
+### Fields with nothing chosen
+
+A writable row where nothing is ticked writes nothing. That is a legitimate choice and
+also exactly what an overlooked one looks like, so the field name — the sticky column,
+the one part of a wide row always on screen — is tinted red and marked `○`.
 
 ### Defaults (requirement 35)
 

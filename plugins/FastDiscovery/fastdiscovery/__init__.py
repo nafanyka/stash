@@ -17,4 +17,4 @@ The package is deliberately layered so each piece is testable without a Stash se
     db         SQLite, migrations, and the only SQL
 """
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"

@@ -391,7 +391,30 @@
   background: rgba(128, 128, 128, 0.2);
 }
 
-.fd-thumb-small { max-height: 52px; max-width: 92px; }
+/* The Image row is judged by looking, so the picture gets the cell: 75% of its
+   width, which still leaves the selection highlight down the side visible. */
+.fd-cell-image { min-width: 12rem; }
+
+.fd-thumb-small {
+  display: block;
+  width: 75%;
+  max-width: 75%;
+  max-height: none;
+  height: auto;
+}
+
+.fd-cell-image .fd-reject {
+  display: flex;
+  margin-top: 0.4rem;
+}
+
+.fd-thumb-gallery {
+  width: 100%;
+  max-width: 100%;
+  max-height: 240px;
+  height: auto;
+  object-fit: contain;
+}
 
 .fd-thumb-loading,
 .fd-thumb-missing {
@@ -404,10 +427,40 @@
   color: var(--text-muted, #868e96);
 }
 
+/* A placeholder holds the space its picture will take, so nothing jumps when the
+   cover finally arrives. */
+.fd-thumb-small.fd-thumb-loading,
+.fd-thumb-small.fd-thumb-missing,
+.fd-thumb-gallery.fd-thumb-loading,
+.fd-thumb-gallery.fd-thumb-missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  line-height: normal;
+}
+
+.fd-thumb-small.fd-thumb-loading,
+.fd-thumb-small.fd-thumb-missing { width: 75%; }
+
+.fd-thumb-gallery.fd-thumb-loading,
+.fd-thumb-gallery.fd-thumb-missing { width: 100%; }
+
 .fd-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1rem;
+}
+
+@media (max-width: 900px) {
+  .fd-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Bootstrap caps a large dialog at 800px, which is three thumbnails' worth of
+   nothing. Picking a cover is looking at covers, so the gallery takes the screen. */
+.modal-dialog.fd-modal-wide {
+  max-width: 90vw;
 }
 
 .fd-gallery-item {
@@ -642,12 +695,16 @@
 
 /* A writable row where nothing is selected. Marked on the field name, which is the
    sticky column and therefore the one part of a wide row always on screen. */
+/* The sticky field column scrolls over the cells behind it, so the tint is layered
+   onto an opaque base instead of being left translucent. */
 .fd-th-field.fd-field-unset {
-  box-shadow: inset 3px 0 0 var(--warning, #ffc107);
+  background: linear-gradient(rgba(220, 53, 69, 0.25), rgba(220, 53, 69, 0.25)),
+              var(--body-bg, #202b33);
+  box-shadow: inset 3px 0 0 var(--danger, #dc3545);
 }
 
 .fd-field-unset .fd-field-label {
-  color: var(--warning, #ffc107);
+  color: var(--danger, #dc3545);
 }
 
 .fd-unset-mark {

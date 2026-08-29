@@ -450,16 +450,34 @@
     }
 
     if (row.kind === "image") {
-      if (!valueId) return h("td", { className: "fd-cell fd-cell-empty" }, "");
+      if (!valueId) {
+        return h(
+          "td",
+          { className: "fd-cell fd-cell-image fd-cell-empty" },
+          props.onReject
+            ? h(RejectToggle, {
+                column: column,
+                busy: props.busy,
+                onReject: props.onReject
+              })
+            : null
+        );
+      }
       var image = props.byId[valueId];
       var isSelected = chosen === valueId;
       return h(
         "td",
         {
-          className: cx("fd-cell", "fd-cell-selectable", isSelected && "fd-cell-selected"),
+          className: cx("fd-cell", "fd-cell-image", "fd-cell-selectable",
+                        isSelected && "fd-cell-selected"),
           onClick: function () { props.onPick(valueId); }
         },
-        h(Thumbnail, { candidate: image, size: "small" })
+        h(Thumbnail, { candidate: image, size: "small" }),
+        // A cover that is plainly a different scene is the quickest way to see that a
+        // whole result is wrong, so the way to drop it sits right under the picture.
+        props.onReject
+          ? h(RejectToggle, { column: column, busy: props.busy, onReject: props.onReject })
+          : null
       );
     }
 
@@ -618,6 +636,32 @@
     );
   }
 
+  /* --------------------------------------------------------------- rejecting */
+
+  // One result of one source, struck out. The same control appears twice: in the
+  // column header, and beside that column's preview in the Image row.
+  function RejectToggle(props) {
+    var column = props.column;
+    return h(
+      "label",
+      {
+        className: cx("fd-reject", column.rejected && "fd-reject-on"),
+        title: column.rejected
+          ? "Rejected: nothing in this column is counted. Untick to bring it back."
+          : "Reject this result - drops everything it said from every row",
+        // In the Image row the cell itself picks the cover; rejecting it is not that.
+        onClick: function (event) { event.stopPropagation(); }
+      },
+      h("input", {
+        type: "checkbox",
+        checked: !!column.rejected,
+        disabled: !!props.busy,
+        onChange: function () { props.onReject(column, !column.rejected); }
+      }),
+      h("span", null, column.rejected ? "rejected" : "reject")
+    );
+  }
+
   /* ------------------------------------------------------------------- images */
 
   function Thumbnail(props) {
@@ -640,14 +684,14 @@
       [candidate.sha256, candidate.kind]
     );
 
-    if (failed[0]) return h("div", { className: "fd-thumb fd-thumb-missing" }, "no preview");
-    if (!loaded[0]) return h("div", { className: "fd-thumb fd-thumb-loading" }, "");
-    return h("img", {
-      className: cx("fd-thumb", props.size === "small" && "fd-thumb-small"),
-      src: loaded[0],
-      alt: "",
-      loading: "lazy"
-    });
+    var sized = cx("fd-thumb",
+                   props.size === "small" && "fd-thumb-small",
+                   props.size === "gallery" && "fd-thumb-gallery");
+    // The placeholders carry the size classes too, so a cell does not change width
+    // when its picture arrives.
+    if (failed[0]) return h("div", { className: cx(sized, "fd-thumb-missing") }, "no preview");
+    if (!loaded[0]) return h("div", { className: cx(sized, "fd-thumb-loading") }, "");
+    return h("img", { className: sized, src: loaded[0], alt: "", loading: "lazy" });
   }
 
   function ImagePicker(props) {
@@ -695,7 +739,14 @@
       open[0]
         ? h(
             Modal,
-            { show: true, size: "lg", onHide: function () { open[1](false); }, className: "fd-modal" },
+            {
+              show: true,
+              size: "lg",
+              onHide: function () { open[1](false); },
+              className: "fd-modal",
+              // Choosing a cover means looking at it, so the gallery gets the width.
+              dialogClassName: "fd-modal-wide"
+            },
             h(Modal.Header, null, h(Modal.Title, null, "Select scene image")),
             h(
               Modal.Body,
@@ -716,7 +767,7 @@
                       checked: chosen === candidate.id,
                       onChange: function () { props.onPick(candidate.id); }
                     }),
-                    h(Thumbnail, { candidate: candidate }),
+                    h(Thumbnail, { candidate: candidate, size: "gallery" }),
                     h(
                       "span",
                       { className: "fd-gallery-label" },
@@ -786,23 +837,11 @@
                 // column per answer, and the second can be a different scene entirely
                 // while the first is right - so this is per column, not per source.
                 onReject && column.id !== "current"
-                  ? h(
-                      "label",
-                      {
-                        className: cx("fd-reject", column.rejected && "fd-reject-on"),
-                        title: column.rejected
-                          ? "Rejected: nothing in this column is counted. Untick to " +
-                            "bring it back."
-                          : "Reject this result - drops everything it said from every row"
-                      },
-                      h("input", {
-                        type: "checkbox",
-                        checked: !!column.rejected,
-                        disabled: !!props.busy,
-                        onChange: function () { onReject(column, !column.rejected); }
-                      }),
-                      h("span", null, column.rejected ? "rejected" : "reject")
-                    )
+                  ? h(RejectToggle, {
+                      column: column,
+                      busy: props.busy,
+                      onReject: onReject
+                    })
                   : null
               );
             })
@@ -823,8 +862,19 @@
             var cells = review.columns.map(function (column) {
               if (column.rejected) {
                 // Shown, so the choice is visible and reversible; empty, because
-                // nothing this source said counts any more.
-                return h("td", { key: column.id, className: "fd-cell fd-column-rejected" });
+                // nothing this source said counts any more. The Image row keeps its
+                // toggle, so it can be undone where it was done.
+                return h(
+                  "td",
+                  { key: column.id, className: "fd-cell fd-column-rejected" },
+                  row.kind === "image" && onReject
+                    ? h(RejectToggle, {
+                        column: column,
+                        busy: props.busy,
+                        onReject: onReject
+                      })
+                    : null
+                );
               }
               return h(ValueCell, {
                 key: column.id,
@@ -832,6 +882,10 @@
                 column: column,
                 byId: byId,
                 chosen: chosen,
+                busy: props.busy,
+                onReject: row.kind === "image" && onReject && column.id !== "current"
+                  ? onReject
+                  : null,
                 onPick: function (id) { props.onPick(row.field, id); },
                 onToggle: function (id) { props.onToggle(row.field, id); }
               });
