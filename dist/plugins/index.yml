@@ -8,8 +8,8 @@
       can read them, and puts all of the answers side by side in one review table.
       Nothing is written to the scene until you press Apply, and the results are deleted
       the moment you decide.
-  version: 0.2.3-ece20ca
-  date: '2026-08-28 18:27:52'
+  version: 0.2.4-ece20ca
+  date: '2026-08-28 18:28:52'
   path: FastDiscovery.zip
   sha256: efa0db243bab9491c043eedc7ce7a53ec64221938858625b9818c6966d48ea41
   requires: []
