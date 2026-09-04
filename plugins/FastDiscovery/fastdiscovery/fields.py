@@ -247,6 +247,26 @@ def title_from_filename(basename):
     return _WS.sub(" ", " ".join(words)).strip()
 
 
+def local_url(value):
+    """A Stash-served URL, reduced to a path the browser can resolve itself.
+
+    `paths.screenshot` is absolute, and Stash builds it from the base URL of whoever
+    asked - which here is this plugin, talking to localhost. Handing that to a browser
+    on another machine gives it an address only the server can reach, and the cover
+    silently fails to load. The path survives the move; the host is the part that was
+    never ours to state.
+    """
+    text = clean(value)
+    if not text:
+        return None
+    for prefix in ("http://", "https://"):
+        if text.lower().startswith(prefix):
+            rest = text[len(prefix):]
+            slash = rest.find("/")
+            return rest[slash:] if slash >= 0 else "/"
+    return text
+
+
 def scene_snapshot(scene):
     """What Stash already knows about a scene, in the shape the review compares against.
 
@@ -284,8 +304,8 @@ def scene_snapshot(scene):
         "search_term": title or filename_title,
         "updated_at": scene.get("updated_at"),
         "urls": scene_urls,
-        "screenshot": ((scene.get("paths") or {}).get("screenshot")
-                       if isinstance(scene.get("paths"), dict) else None),
+        "screenshot": local_url((scene.get("paths") or {}).get("screenshot")
+                                if isinstance(scene.get("paths"), dict) else None),
         "values": {
             "title": title,
             "date": clean(scene.get("date")),

@@ -556,3 +556,38 @@ class TestNeverCreatesWhatAlreadyExists:
             apply_module.commit(fd_repo, client, run, scene, {"tags": ticked})
         assert "the server said no" in str(failure.value)
         assert client.updates == []
+
+
+class TestAliasesOnApply:
+    """A name the library owns as an alias is linked, never created.
+
+    Stash refuses the create outright - "name 'X' is used as alias for 'Y'" - so the
+    only two outcomes available are linking to the record that owns it and failing.
+    """
+
+    def test_a_ticked_candidate_owned_as_an_alias_is_linked(self, fd_repo, fd_config,
+                                                            fd_scene):
+        client, run, review = prepared(
+            fd_repo, fd_config, fd_scene,
+            {STASHDB: scraped(tags=["Couple Sex (Straight)"])},
+            entities={"tag": {"Couple Sex": [{"id": "71", "name": "Couple Sex",
+                                              "aliases": ["Couple Sex (Straight)"]}],
+                              "FastDiscovery": [{"id": "9",
+                                                 "name": "FastDiscovery"}]}})
+        ticked = [entity["id"] for entity in row(review, "tags")["values"]]
+        result = apply_module.commit(fd_repo, client, run, fd_scene, {"tags": ticked})
+        assert client.created == []
+        assert result["created"] == {}
+        assert sorted(client.updates[0]["tag_ids"]) == ["3", "71", "9"]
+
+    def test_the_review_already_calls_it_existing(self, fd_repo, fd_config, fd_scene):
+        _client, _run, review = prepared(
+            fd_repo, fd_config, fd_scene,
+            {STASHDB: scraped(tags=["Couple Sex (Straight)"])},
+            entities={"tag": {"Couple Sex": [{"id": "71", "name": "Couple Sex",
+                                              "aliases": ["Couple Sex (Straight)"]}]}})
+        entity = next(one for one in row(review, "tags")["values"]
+                      if one["stored_id"] == "71")
+        # Ticked by default, because it is a record the library already has - a
+        # candidate would not be.
+        assert entity["id"] in row(review, "tags")["default"]

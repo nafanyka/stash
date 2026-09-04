@@ -295,6 +295,45 @@ A lookup that could not be asked now says so in the log (`name matching is degra
 instead of answering "no", and a unit test asserts that every variable in these queries is
 declared as the type it is used as.
 
+### Names, and names a record answers to
+
+The lookup asks two questions, not one. First: what is *called* this? Then, only for a
+name nothing is called: what has this as an *alias*?
+
+The second question is not a nicety. `EnsureTagNameUnique` (`pkg/tag/update.go`) checks a
+new name against existing names **and** existing aliases, so a name the library appears
+not to have can still be spoken for, and creating it is refused with `name 'X' is used as
+alias for 'Y'`. A candidate offered as "does not exist yet" would then be undeliverable.
+So a name only an alias owns resolves to the record that owns it, and the scene gets that
+record.
+
+When it does, the library's own spelling wins: the option is shown under the record's
+name, with the scraped name kept as one of its aliases and named in the chip's tooltip.
+If the owner is already on the scene, or arrived from another source under its real name,
+the two fold into one option by local id, as any two mentions of one record do.
+
+Uniqueness still decides. Two records answering to the same name is not a match, it is a
+question only the user can answer, so the entity stays a candidate with both alternatives
+attached. Groups are asked by name only - `GroupFilterType` has no alias criterion.
+
+### A rejection that keeps what survives it
+
+Striking out a column must drop what only that column said, and nothing else. That is
+harder than it looks, because an option id is a hash of the option's identity, and an
+entity's identity is built from every mention of it.
+
+Two stash-boxes reporting the same tag report it with their own remote ids, so it arrives
+as two mentions agreeing on nothing but a name. The name lookup gives both the same local
+record, they fold into one option, and the option keeps the id of whichever mention came
+first. Strike that box out and the survivor is the *other* mention, under its own id - so
+a selection carried across by id alone loses a tag both boxes agreed on, which reads as
+FastDiscovery quietly undoing a decision.
+
+So the selection is carried across by **signature** - what the option is (an entity's
+name and disambiguation, or a value's key), not the evidence for it. A signature that
+still matches keeps its tick; a signature that matches nothing was only ever offered by
+the source now struck out, and dropping it is the point.
+
 ### Apply, step by step
 
 Apply, in order: rebuild the review against the live scene → drop the no-ops → create only

@@ -292,13 +292,31 @@ def op_reject_column(context, args):
         rejected.add(column)
     else:
         rejected.discard(column)
+
+    # What is ticked right now, described by what it *is*. An option id is a hash of
+    # the option's identity, and an entity's identity is built from every source that
+    # mentioned it - so striking one column out changes the id of a tag the remaining
+    # columns still agree on. Carried across by id alone, that tag would come back
+    # unticked, which reads as FastDiscovery undoing a decision nobody revisited.
+    scene = context.client.find_scene(run["scene_id"])
+    carried = None
+    if scene:
+        before = merge_module.build(context.repo, run, scene, context.schema_fields(),
+                                    context.client, run.get("rejected_columns"))
+        carried = merge_module.selection_signatures(
+            before, run.get("selection") or merge_module.default_selection(before))
+
     context.repo.set_rejected_columns(run["id"], rejected)
 
-    # The selection is re-checked against the matrix the change produced, so a tick left
-    # pointing at a value only the rejected source offered does not survive as a
-    # dangling id that Apply would refuse.
     refreshed = op_review_get(context, {"run_id": run["id"]})
     if refreshed.get("ok") is not False and refreshed.get("selection") is not None:
+        if carried is not None:
+            # Whatever the signatures still match keeps its tick; whatever they no
+            # longer match was only ever offered by a source that is now struck out,
+            # and dropping it is the point of striking it out.
+            refreshed["selection"] = dict(refreshed["selection"],
+                                          **merge_module.carry_selection(refreshed,
+                                                                         carried))
         context.repo.set_selection(run["id"], refreshed["selection"])
     return refreshed
 

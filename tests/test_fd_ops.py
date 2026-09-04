@@ -8,6 +8,7 @@ from fastdiscovery import discovery, ops, settings
 from fastdiscovery.db import repo as R
 
 STASHDB = "https://stashdb.org/graphql"
+TPDB = "https://theporndb.net/graphql"
 
 
 def context(fd_repo, fd_config, scene, responses=None, entities=None):
@@ -356,3 +357,88 @@ class TestRejectingOneOfSeveralResults:
         # The date only the wrong answer had goes with it.
         dates = next(row for row in after["rows"] if row["field"] == "date")
         assert {value["display"] for value in dates["values"]} == {"2024-01-17"}
+
+
+def row(review, field):
+    return next(entry for entry in review["rows"] if entry["field"] == field)
+
+
+class TestRejectingKeepsWhatSurvives:
+    """Striking out one result must not untick what the others still say.
+
+    Two stash-boxes reporting the same tag report it with their own remote ids, so it
+    arrives as two mentions that agree on nothing but a name. The name lookup gives both
+    the same local record, they are folded into one option, and the option keeps the id
+    of whichever mention came first. Strike that source out and the survivor is the
+    *other* mention, under its own id - so a selection carried across by id alone loses
+    a tag both sources agreed on.
+    """
+
+    def prepared(self, fd_repo, fd_config, fd_scene):
+        scene = dict(fd_scene, tags=[])
+        client = FakeStash(
+            scene=scene,
+            entities={"tag": {"Shared Tag": [{"id": "55", "name": "Shared Tag"}]}},
+            responses={
+                STASHDB: scraped(title="From StashDB",
+                                 tags=[{"name": "Shared Tag", "remote_site_id": "t-1"},
+                                       {"name": "Only Here", "remote_site_id": "t-9"}]),
+                TPDB: scraped(title="From TPDB",
+                              tags=[{"name": "Shared Tag", "remote_site_id": "t-2"}]),
+            })
+        context = ops.Context(client, fd_repo, fd_config)
+        discovery.Runner(client, fd_repo, fd_config).run(295)
+        return context, scene
+
+    def reject_stashdb(self, context, review):
+        column = next(one for one in review["columns"]
+                      if one["name"].startswith("StashDB"))
+        return ops.dispatch(context, "review.reject_column",
+                            {"run_id": review["run"]["id"], "column_id": column["id"],
+                             "rejected": True})
+
+    def ticked(self, review):
+        chosen = set(review["selection"]["tags"])
+        return sorted(value["name"] for value in row(review, "tags")["values"]
+                      if value["id"] in chosen)
+
+    def test_a_tag_two_sources_agree_on_keeps_its_tick(self, fd_repo, fd_config,
+                                                       fd_scene):
+        context, _scene = self.prepared(fd_repo, fd_config, fd_scene)
+        review = ops.dispatch(context, "review.get", {"scene_id": 295})
+        every = [value["id"] for value in row(review, "tags")["values"]]
+        ops.dispatch(context, "review.save",
+                     {"run_id": review["run"]["id"],
+                      "selection": dict(review["selection"], tags=every)})
+
+        after = self.reject_stashdb(context, review)
+        # The option came back under a different id - that is the whole trap - and the
+        # tick followed it anyway.
+        assert [value["id"] for value in row(after, "tags")["values"]] != every
+        assert self.ticked(after) == ["Shared Tag"]
+
+    def test_what_only_the_struck_out_source_said_is_gone(self, fd_repo, fd_config,
+                                                          fd_scene):
+        context, _scene = self.prepared(fd_repo, fd_config, fd_scene)
+        review = ops.dispatch(context, "review.get", {"scene_id": 295})
+        every = [value["id"] for value in row(review, "tags")["values"]]
+        ops.dispatch(context, "review.save",
+                     {"run_id": review["run"]["id"],
+                      "selection": dict(review["selection"], tags=every)})
+        assert "Only Here" in [value["name"] for value in row(review, "tags")["values"]]
+
+        after = self.reject_stashdb(context, review)
+        assert "Only Here" not in [value["name"]
+                                   for value in row(after, "tags")["values"]]
+
+    def test_the_carried_selection_is_what_gets_stored(self, fd_repo, fd_config,
+                                                       fd_scene):
+        context, _scene = self.prepared(fd_repo, fd_config, fd_scene)
+        review = ops.dispatch(context, "review.get", {"scene_id": 295})
+        every = [value["id"] for value in row(review, "tags")["values"]]
+        ops.dispatch(context, "review.save",
+                     {"run_id": review["run"]["id"],
+                      "selection": dict(review["selection"], tags=every)})
+        after = self.reject_stashdb(context, review)
+        stored = fd_repo.run(review["run"]["id"])["selection"]
+        assert stored["tags"] == after["selection"]["tags"]

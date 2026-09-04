@@ -137,8 +137,21 @@ class FakeStash:
         return self._lookup("group", names)
 
     def _lookup(self, kind, names):
+        """What Stash answers: by name first, and only then by alias.
+
+        The real client asks two questions and this stands in for both, because the
+        difference between them is exactly what the alias handling is about - a name
+        nothing is called can still be spoken for by something's alias.
+        """
         known = self.entities.get(kind) or {}
-        return {name: list(known.get(name) or []) for name in (names or [])}
+        found = {}
+        for name in (names or []):
+            rows = list(known.get(name) or [])
+            if not rows:
+                rows = [row for value in known.values() for row in value
+                        if name in _aliases(row)]
+            found[name] = rows
+        return found
 
     def create_performer(self, values):
         return self._create("performer", values)
@@ -191,3 +204,13 @@ def scraped(**values):
         else:
             payload[key] = value
     return payload
+
+
+def _aliases(row):
+    """A record's aliases, in whichever of Stash's three shapes the row uses."""
+    raw = row.get("aliases")
+    if raw is None:
+        raw = row.get("alias_list")
+    if isinstance(raw, str):
+        raw = raw.split(",")
+    return [str(one).strip() for one in (raw or []) if str(one).strip()]

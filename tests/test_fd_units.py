@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from fd_common import SCRAPERS
 
-from fastdiscovery import fields, registry, settings, stash, urls
+from fastdiscovery import fields, merge, registry, settings, stash, urls
 
 
 class TestUrlNormalisation:
@@ -277,3 +277,34 @@ class TestTheNameLookupQuery:
         client.try_call = lambda query, variables=None, timeout=None: None
         assert client.find_tags_by_names(["Known Tag"]) == {"Known Tag": []}
         assert "name matching is degraded" in capsys.readouterr().err
+
+
+class TestLocalUrl:
+    @pytest.mark.parametrize("given, expected", [
+        ("http://localhost:9999/scene/295/screenshot", "/scene/295/screenshot"),
+        ("https://stash.example.com:9999/scene/1/screenshot?t=2",
+         "/scene/1/screenshot?t=2"),
+        ("/scene/295/screenshot", "/scene/295/screenshot"),
+        ("https://localhost:9999", "/"),
+        (None, None),
+        ("", None),
+    ])
+    def test_the_host_is_dropped_and_the_path_kept(self, given, expected):
+        assert fields.local_url(given) == expected
+
+
+class TestNamesARecordAnswersTo:
+    @pytest.mark.parametrize("row, expected", [
+        ({"name": "Tag", "aliases": ["A", "B"]}, ["Tag", "A", "B"]),
+        ({"name": "Performer", "alias_list": ["Also"]}, ["Performer", "Also"]),
+        ({"name": "Group", "aliases": "One, Two"}, ["Group", "One", "Two"]),
+        ({"name": "Bare"}, ["Bare"]),
+        ({"name": "Blanks", "aliases": ["", "  ", "Real"]}, ["Blanks", "Real"]),
+    ])
+    def test_every_shape_stash_uses(self, row, expected):
+        assert merge.names_of(row) == expected
+
+    def test_matching_ignores_case_and_punctuation(self):
+        row = {"name": "Couple Sex", "aliases": ["Couple Sex (Straight)"]}
+        assert merge.answers_to(row, fields.canon_name("couple sex straight"))
+        assert not merge.answers_to(row, fields.canon_name("Anal"))

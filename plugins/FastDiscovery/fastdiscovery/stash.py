@@ -252,28 +252,53 @@ class Client:
     # -- entity lookup, for resolving a review selection -------------------
 
     def find_performers_by_names(self, names):
-        """name -> [{id, name, disambiguation}] for the names given, matched exactly.
+        """name -> the local records that answer to each name given.
 
-        One request for the lot: apply resolves a handful of names and a request each
-        would be a handful of process-blocking round trips.
+        One request per name per criterion: apply resolves a handful of names, and the
+        review resolves at most its lookup budget.
         """
         return self._find_by_names(
             "findPerformers", "performer_filter",
-            "performers { id name disambiguation }", names)
+            "performers { id name disambiguation alias_list }", names)
 
     def find_tags_by_names(self, names):
-        return self._find_by_names("findTags", "tag_filter", "tags { id name }", names)
+        return self._find_by_names("findTags", "tag_filter",
+                                   "tags { id name aliases }", names)
 
     def find_studios_by_names(self, names):
         return self._find_by_names("findStudios", "studio_filter",
-                                   "studios { id name }", names)
+                                   "studios { id name aliases }", names)
 
     def find_groups_by_names(self, names):
+        # GroupFilterType has no `aliases` criterion, so a group can only be asked for
+        # by name. Its own `aliases` field is one comma-separated string, selected here
+        # so a caller can still see what the record answers to.
         return self._find_by_names("findGroups", "group_filter",
-                                   "groups { id name }", names)
+                                   "groups { id name aliases }", names, by_alias=False)
 
-    def _find_by_names(self, query_name, filter_arg, selection, names):
-        """name -> the records carrying exactly that name.
+    def _find_by_names(self, query_name, filter_arg, selection, names, by_alias=True):
+        """name -> the records that answer to exactly that name.
+
+        Two questions, not one. First: what is *called* this? Then, only for a name
+        nothing is called: what has this as an *alias*? Stash refuses to create a tag
+        whose name is another tag's alias ("name 'X' is used as alias for 'Y'"), so a
+        name the library appears not to have can still be spoken for, and asking the
+        second question is the difference between linking to the record that owns it
+        and an apply that fails on something the reviewer cannot act on.
+
+        The alias question is skipped where the filter cannot ask it - groups have no
+        alias criterion - and wherever the first question already answered.
+        """
+        found = {}
+        for name in {str(one).strip() for one in (names or []) if str(one).strip()}:
+            rows = self._find_by(query_name, filter_arg, "name", selection, name)
+            if not rows and by_alias:
+                rows = self._find_by(query_name, filter_arg, "aliases", selection, name)
+            found[name] = rows
+        return found
+
+    def _find_by(self, query_name, filter_arg, criterion, selection, name):
+        """One exact-match lookup on one criterion.
 
         `filter` is the paging argument and is a `FindFilterType` for every one of these
         queries - it is not the entity's own filter type, which goes in inline above it.
@@ -283,25 +308,20 @@ class Client:
         exists, which reads exactly like a library that really has nothing - until Apply
         tries to create it and Stash says it is already there.
         """
-        found = {}
-        for name in {str(one).strip() for one in (names or []) if str(one).strip()}:
-            data = self.try_call(
-                "query($name: String!, $filter: FindFilterType) { %s(%s: {name:"
-                " {value: $name, modifier: EQUALS}}, filter: $filter) { %s } }"
-                % (query_name, filter_arg, selection),
-                {"name": name, "filter": {"per_page": 10}}, timeout=20)
-            if data is None:
-                # Not "no such record": the question never got an answer. Said out loud,
-                # because the cost of failing quietly here is entities created twice.
-                logs.warning("%s could not be asked about %r - name matching is degraded"
-                          % (query_name, name))
-                found[name] = []
-                continue
-            container = data.get(query_name) or {}
-            rows = next((value for value in container.values()
-                         if isinstance(value, list)), [])
-            found[name] = rows
-        return found
+        data = self.try_call(
+            "query($name: String!, $filter: FindFilterType) { %s(%s: {%s:"
+            " {value: $name, modifier: EQUALS}}, filter: $filter) { %s } }"
+            % (query_name, filter_arg, criterion, selection),
+            {"name": name, "filter": {"per_page": 10}}, timeout=20)
+        if data is None:
+            # Not "no such record": the question never got an answer. Said out loud,
+            # because the cost of failing quietly here is entities created twice.
+            logs.warning("%s could not be asked about %r by %s - name matching is "
+                         "degraded" % (query_name, name, criterion))
+            return []
+        container = data.get(query_name) or {}
+        return next((value for value in container.values()
+                     if isinstance(value, list)), [])
 
     # -- entity creation, only ever for an explicitly selected candidate ---
 

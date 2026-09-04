@@ -525,7 +525,19 @@
     return h(
       "span",
       { className: cx("fd-entity", entity.existing ? "fd-entity-known" : "fd-entity-new") },
-      h("span", { className: "fd-entity-name" }, entity.name),
+      h(
+        "span",
+        {
+          className: "fd-entity-name",
+          // The scraped name and the name on the record are not always the same one.
+          // Saying which alias led here explains a row that otherwise looks like it
+          // arrived from nowhere.
+          title: entity.alias_of
+            ? "Scraped as \"" + entity.alias_of + "\", which this record holds as an alias"
+            : undefined
+        },
+        entity.name
+      ),
       entity.disambiguation
         ? h("span", { className: "fd-entity-disambiguation" }, " (" + entity.disambiguation + ")")
         : null,
@@ -684,7 +696,16 @@
     // when its picture arrives.
     if (failed[0]) return h("div", { className: cx(sized, "fd-thumb-missing") }, "no preview");
     if (!loaded[0]) return h("div", { className: cx(sized, "fd-thumb-loading") }, "");
-    return h("img", { className: sized, src: loaded[0], alt: "", loading: "lazy" });
+    return h("img", {
+      className: sized,
+      src: loaded[0],
+      alt: "",
+      loading: "lazy",
+      // A cover can be an address this browser cannot reach - a scraper host that is
+      // down, one that refuses hotlinking, or a Stash URL built for a different host.
+      // Saying so beats a broken-image glyph the reviewer has to interpret.
+      onError: function () { failed[1](true); }
+    });
   }
 
   function ImagePicker(props) {
@@ -1148,13 +1169,31 @@
         { className: "fd-review-head" },
         h(
           "div",
-          null,
-          h("h2", null, "FastDiscovery"),
+          { className: "fd-scene-head" },
+          props.sceneId ? null : h("div", { className: "fd-kicker" }, "FastDiscovery"),
+          // The scene, by name and by address. A new tab, because the review is the
+          // thing being read: opening the scene in place would lose it.
+          h(
+            "h2",
+            null,
+            h(
+              "a",
+              {
+                href: "/scenes/" + data.scene.id,
+                target: "_blank",
+                rel: "noopener noreferrer",
+                title: "Open this scene in a new tab"
+              },
+              data.scene.title || data.scene.filename
+            )
+          ),
+          data.scene.path
+            ? h("div", { className: "fd-scene-path", title: data.scene.path },
+                data.scene.path)
+            : null,
           h(
             "div",
             { className: "fd-muted" },
-            data.scene.title || data.scene.filename,
-            " · ",
             h(StatusPill, { status: data.run.status }),
             " · ",
             data.summary.columns + " column(s) from " + data.summary.sources + " source(s)",

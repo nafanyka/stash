@@ -54,6 +54,30 @@ BY_LOCAL_ID = "local_id"
 BY_STASH_ID = "stash_id"
 BY_URL = "url"
 BY_NAME = "name"
+# Not called this, but answers to it. Weaker than a name, and deliberately last: it is
+# also the only way to resolve a name Stash will not let anything be created under.
+BY_ALIAS = "alias"
+
+
+def names_of(row):
+    """Every name a local record answers to: its own, and its aliases.
+
+    Three shapes, because Stash has three: tags and studios carry `aliases` as a list,
+    performers carry `alias_list`, and a group's `aliases` is one comma-separated
+    string.
+    """
+    values = [row.get("name")]
+    raw = row.get("aliases")
+    if raw is None:
+        raw = row.get("alias_list")
+    if isinstance(raw, str):
+        raw = raw.split(",")
+    values.extend(raw or [])
+    return [str(one).strip() for one in values if one and str(one).strip()]
+
+
+def answers_to(row, canon):
+    return any(fields.canon_name(one) == canon for one in names_of(row))
 
 
 def column_id(source_id, ordinal=0):
@@ -127,7 +151,8 @@ def build(repo, run, scene, schema_fields=None, client=None, rejected=None):
     return {
         "run": _run_summary(run),
         "scene": {"id": snapshot["scene_id"], "title": snapshot["display_title"],
-                  "filename": snapshot["filename"], "screenshot": snapshot["screenshot"],
+                  "filename": snapshot["filename"], "path": snapshot["path"],
+                  "screenshot": snapshot["screenshot"],
                   "updated_at": snapshot["updated_at"]},
         "columns": columns,
         "sources": [_source_summary(source) for source in sources],
@@ -689,12 +714,16 @@ MAX_NAME_LOOKUPS = 100
 
 
 def find_local_entity(client, kind, name, canon=None):
-    """The local record for a name, but only when there is exactly one.
+    """The local record that answers to a name, but only when there is exactly one.
 
     The same rule Stash applies when it fills in `stored_id` (`pkg/match/scraped.go`):
-    an exact name match, and a unique one. Two records sharing a name is not a match -
-    it is a question only the user can answer - so this returns None and the entity
-    stays a candidate.
+    an exact match, and a unique one. Two records sharing a name is not a match - it is
+    a question only the user can answer - so this returns None and the entity stays a
+    candidate.
+
+    Aliases count, because they count to Stash: it will not create a tag whose name is
+    another tag's alias, so a name only an alias owns has exactly one honest resolution,
+    and it is that record.
     """
     method = getattr(client, _LOOKUP.get(kind, ""), None) if client else None
     if method is None or not name:
@@ -705,8 +734,7 @@ def find_local_entity(client, kind, name, canon=None):
     except Exception:
         # A lookup failing must never be the reason a review or an apply falls over.
         return None
-    exact = [row for row in (found.get(name) or [])
-             if fields.canon_name(row.get("name")) == canon]
+    exact = [row for row in (found.get(name) or []) if answers_to(row, canon)]
     return exact[0] if len(exact) == 1 else None
 
 
@@ -739,12 +767,9 @@ def _link_by_name(field, entities, client):
         return
     for entity in unmatched:
         rows = found.get(entity["name"]) or []
-        exact = [row for row in rows
-                 if fields.canon_name(row.get("name")) == entity["canon"]]
+        exact = [row for row in rows if answers_to(row, entity["canon"])]
         if len(exact) == 1:
-            entity["stored_id"] = str(exact[0]["id"])
-            entity["existing"] = True
-            entity["matched_by"] = BY_NAME
+            _link_to(entity, exact[0])
         elif len(exact) > 1:
             entity["ambiguous_matches"] = [
                 {"id": str(row["id"]), "name": row.get("name"),
@@ -752,6 +777,26 @@ def _link_by_name(field, entities, client):
         elif entity["name"] not in found:
             # Past the lookup ceiling: not asked about, so not known to be missing.
             entity["unchecked"] = True
+
+
+def _link_to(entity, row):
+    """Bind a candidate to the local record that turned out to own its name.
+
+    When the record owns the name as an *alias*, the library's own spelling wins and
+    the scraped name becomes one more alias of the option. Anything else would show the
+    reviewer one name and put a differently-named record on the scene.
+    """
+    entity["stored_id"] = str(row["id"])
+    entity["existing"] = True
+    by_name = fields.canon_name(row.get("name")) == entity["canon"]
+    entity["matched_by"] = BY_NAME if by_name else BY_ALIAS
+    if by_name or not row.get("name"):
+        return
+    entity["alias_of"] = entity["name"]
+    entity["aliases"] = sorted({name for name in
+                                entity["aliases"] + [entity["name"]]
+                                if name != row["name"]})
+    entity["name"] = row["name"]
 
 
 def _merge_by_stored_id(entities):
@@ -863,6 +908,69 @@ def sanitise_selection(review, selection):
         else:
             out[row["field"]] = row["default"] if not isinstance(row["default"], list)                 else []
     return out
+
+
+def selection_signatures(review, selection):
+    """What is ticked, described by *what* it is rather than by the id it was ticked as.
+
+    An option id is a hash of the option's identity, and for an entity that identity is
+    built from every source that mentioned it. Striking one column out therefore changes
+    the id of an entity the two remaining columns still agree on, and carrying the
+    selection across by id alone would untick it - taking away a choice the reviewer
+    made and never revisited. A signature describes the value, not the evidence for it,
+    so it survives the rebuild.
+    """
+    selection = selection if isinstance(selection, dict) else {}
+    out = {}
+    for row in review["rows"]:
+        if row["field"] not in selection:
+            continue
+        by_id = {}
+        for value in row["values"]:
+            by_id[value["id"]] = value
+            for absorbed in value.get("merged_ids") or []:
+                by_id.setdefault(absorbed, value)
+        chosen = selection[row["field"]]
+        if isinstance(chosen, list):
+            out[row["field"]] = [_signature(row, by_id[one]) for one in chosen
+                                 if one in by_id]
+        elif chosen in by_id:
+            out[row["field"]] = _signature(row, by_id[chosen])
+    return out
+
+
+def carry_selection(review, signatures):
+    """Signatures turned back into the option ids of *this* build of the review.
+
+    A signature with nothing to match is dropped, which is the right answer: whatever it
+    described was only ever offered by a source that is no longer counted.
+    """
+    out = {}
+    for row in review["rows"]:
+        if row["field"] not in signatures:
+            continue
+        here = {}
+        for value in row["values"]:
+            here.setdefault(_signature(row, value), value["id"])
+        wanted = signatures[row["field"]]
+        if isinstance(wanted, list):
+            out[row["field"]] = [here[one] for one in wanted if one in here]
+        elif wanted in here:
+            out[row["field"]] = here[wanted]
+    return out
+
+
+def _signature(row, value):
+    """What an option is, in a form that does not depend on who said it.
+
+    Entities are described by name rather than by local id on purpose: the id can be
+    filled in by the name lookup between one build and the next, and a signature that
+    moved when that happened would defeat the whole point.
+    """
+    if row["kind"] in (fields.ENTITY, fields.ENTITY_LIST):
+        return "entity:%s|%s" % (value.get("canon"),
+                                 fields.canon_text(value.get("disambiguation")))
+    return "value:%s" % value.get("key")
 
 
 def summarise(review):

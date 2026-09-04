@@ -70,6 +70,36 @@
   margin: 0 0 0.25rem;
 }
 
+.fd-scene-head {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.fd-scene-head h2 a {
+  color: inherit;
+}
+
+.fd-scene-head h2 a:hover {
+  color: var(--primary, #137cbd);
+}
+
+/* A path is read left to right and is often longer than the column: it wraps rather
+   than stretching the page sideways, and stays monospaced so it can be scanned. */
+.fd-scene-path {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-monospace, ui-monospace, "SFMono-Regular", Menlo, monospace);
+  font-size: 0.82rem;
+  color: var(--text-muted, #868e96);
+  word-break: break-all;
+}
+
+.fd-kicker {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted, #868e96);
+}
+
 .fd-actions {
   display: flex;
   flex-wrap: wrap;

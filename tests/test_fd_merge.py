@@ -390,3 +390,104 @@ class TestUrlRow:
                                               in row(review, "urls")["values"]}
         assert "https://siteb.com/v/2" in {entry["url"] for entry
                                            in review["urls_graph"]}
+
+
+class TestAliases:
+    """A name the library owns as an alias is not a name the library is missing.
+
+    Stash refuses to create a tag whose name is another tag's alias, so treating such a
+    name as a candidate produces a review that promises something Apply cannot deliver.
+    """
+
+    def review_for(self, fd_repo, fd_config, fd_scene, tags, library, scene_tags=None):
+        scene = dict(fd_scene, tags=scene_tags if scene_tags is not None
+                     else fd_scene["tags"])
+        client = FakeStash(scene=scene, responses={STASHDB: scraped(tags=tags)},
+                           entities={"tag": library})
+        summary = discovery.Runner(client, fd_repo, fd_config).run(295)
+        run = fd_repo.run(summary["run_id"])
+        return client, merge.build(fd_repo, run, scene, client=client)
+
+    def test_a_scraped_name_owned_as_an_alias_resolves_to_its_owner(
+            self, fd_repo, fd_config, fd_scene):
+        library = {"Couple Sex": [{"id": "71", "name": "Couple Sex",
+                                   "aliases": ["Couple Sex (Straight)"]}]}
+        _client, review = self.review_for(fd_repo, fd_config, fd_scene,
+                                          ["Couple Sex (Straight)"], library)
+        entity = next(one for one in row(review, "tags")["values"]
+                      if one["stored_id"] == "71")
+        assert entity["existing"] is True
+        assert entity["matched_by"] == "alias"
+        # The library's own spelling is what goes on the scene, so the reviewer is not
+        # shown one name and given a differently named record.
+        assert entity["name"] == "Couple Sex"
+        assert "Couple Sex (Straight)" in entity["aliases"]
+
+    def test_the_owner_already_on_the_scene_stays_one_option(self, fd_repo, fd_config,
+                                                             fd_scene):
+        library = {"Couple Sex": [{"id": "71", "name": "Couple Sex",
+                                   "aliases": ["Couple Sex (Straight)"]}]}
+        _client, review = self.review_for(
+            fd_repo, fd_config, fd_scene, ["Couple Sex (Straight)"], library,
+            scene_tags=[{"id": "71", "name": "Couple Sex"}])
+        matching = [one for one in row(review, "tags")["values"]
+                    if one["stored_id"] == "71"]
+        assert len(matching) == 1
+        assert matching[0]["on_scene"] is True
+
+    def test_a_name_nothing_owns_is_still_a_candidate(self, fd_repo, fd_config,
+                                                      fd_scene):
+        _client, review = self.review_for(fd_repo, fd_config, fd_scene,
+                                          ["Genuinely New"], {})
+        entity = next(one for one in row(review, "tags")["values"]
+                      if one["name"] == "Genuinely New")
+        assert entity["existing"] is False
+
+    def test_two_records_answering_to_it_settle_nothing(self, fd_repo, fd_config,
+                                                        fd_scene):
+        """An ambiguous alias is a question only the user can answer."""
+        library = {
+            "Couple Sex": [{"id": "71", "name": "Couple Sex",
+                            "aliases": ["Couple Sex (Straight)"]}],
+            "Straight": [{"id": "72", "name": "Straight",
+                          "aliases": ["Couple Sex (Straight)"]}],
+        }
+        _client, review = self.review_for(fd_repo, fd_config, fd_scene,
+                                          ["Couple Sex (Straight)"], library)
+        entity = next(one for one in row(review, "tags")["values"]
+                      if one["canon"] == "couple sex straight")
+        assert entity["existing"] is False
+        assert len(entity["ambiguous_matches"]) == 2
+
+
+class TestTheSceneHeader:
+    def test_the_review_carries_the_full_file_path(self, fd_repo, fd_config, fd_scene):
+        review = review_of(fd_repo, fd_config, fd_scene,
+                           {STASHDB: scraped(title="New")})
+        assert review["scene"]["path"] == "/media/example_scene_1080p.mp4"
+        assert review["scene"]["id"] == "295"
+
+
+class TestTheCurrentCover:
+    def test_the_scene_cover_is_offered_as_an_option(self, fd_repo, fd_config,
+                                                     fd_scene):
+        review = review_of(fd_repo, fd_config, fd_scene,
+                           {STASHDB: scraped(image="https://cdn/a.jpg")})
+        images = row(review, "image")
+        current = [one for one in images["values"] if one["is_current"]]
+        assert len(current) == 1
+        assert images["cells"]["current"] == current[0]["id"]
+        assert images["default"] == current[0]["id"]
+
+    def test_its_address_is_left_for_the_browser_to_resolve(self, fd_repo, fd_config,
+                                                            fd_scene):
+        """Stash builds paths.screenshot from the host *this plugin* connected to.
+
+        Handing that to a browser somewhere else gives it an address only the server can
+        reach, and the cover silently fails to load. The path is the part that travels.
+        """
+        review = review_of(fd_repo, fd_config, fd_scene,
+                           {STASHDB: scraped(title="New")})
+        current = next(one for one in row(review, "image")["values"]
+                       if one["is_current"])
+        assert current["url"] == "/scene/295/screenshot"
