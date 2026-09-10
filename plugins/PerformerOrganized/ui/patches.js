@@ -1,15 +1,24 @@
 /*
  * PerformerOrganized - where the controls attach to Stash.
  *
- * Three patch points, all of them named registration points Stash publishes for
- * plugins (`ui/v2.5/src/docs/en/Manual/UIPluginApi.md`). Nothing here reaches into
- * Stash's internals, queries the DOM, or replaces a component: each patch takes what
- * the component rendered and returns it with one more thing beside it.
+ * Four patch points, all of them named registration points Stash publishes for plugins
+ * (`ui/v2.5/src/docs/en/Manual/UIPluginApi.md`). Nothing here reaches into Stash's
+ * internals, queries the DOM, or replaces a component: each patch takes what the
+ * component rendered and returns it with one more thing beside it.
  *
- * `after` is the appending form. Its contract is `(props..., result) -> result`: the
- * patch receives the component's own arguments with the rendered output appended, and
- * returns what should be rendered instead. Wrapping the original in a fragment adds to
- * it; another plugin patching the same component still sees the whole thing.
+ * ---------------------------------------------------------------------------------
+ * Reading an `after` patch's arguments
+ *
+ * Stash invokes them as `afterFn.apply(ctx, args.concat(result))` - the component's own
+ * arguments, with its rendered output appended. `args` is what React passed the
+ * component, and React does not call a function component with one argument: it calls
+ * `Component(props, context)`, where a component with no legacy context gets `{}`. So a
+ * handler written `function (props, result)` is really being handed the empty context
+ * object, and returning it as a child is React error #31, "Objects are not valid as a
+ * React child (found: object with keys {})".
+ *
+ * The result is whatever came last, and only that is guaranteed. Hence `attach` below,
+ * which every patch here goes through so the mistake cannot be made twice.
  */
 (function () {
   "use strict";
@@ -22,12 +31,37 @@
   var h = React.createElement;
   var parts = PO.components;
 
+  /* Add one element beside what a component rendered.
+   *
+   * `where` is "after" to append and "before" to put the addition first. `build(props)`
+   * returns the element, or null to leave the component exactly as it was.
+   */
+  function attach(name, where, build) {
+    api.patch.after(name, function () {
+      var props = arguments[0];
+      var result = arguments[arguments.length - 1];
+      var extra;
+      try {
+        extra = build(props);
+      } catch (error) {
+        // A control that throws must not take the page down with it: the worst this
+        // plugin may cost is its own icon.
+        PO.warn("could not build the control for " + name + ": " + error);
+        return result;
+      }
+      if (!extra) return result;
+      return where === "before"
+        ? h(React.Fragment, null, extra, result)
+        : h(React.Fragment, null, result, extra);
+    });
+  }
+
   /* A performer can arrive under more than one prop name depending on the component,
    * and a patch that assumed one would silently render nothing on the others.
    *
    * When none of them holds one, the patch bows out and leaves the component exactly
-   * as it was - but says so once, because "the icon is missing" with a silent log is
-   * a bug report nobody can act on. Once, not per render: this runs on every card.
+   * as it was - but says so once, because "the icon is missing" with a silent log is a
+   * bug report nobody can act on. Once, not per render: this runs on every card.
    */
   var complained = {};
 
@@ -43,29 +77,21 @@
 
   /* ------------------------------------------------------- the performer page */
 
-  api.patch.after("PerformerDetailsPanel", function (props, result) {
+  attach("PerformerDetailsPanel", "after", function (props) {
     var performer = performerOf(props, "PerformerDetailsPanel");
-    if (!performer) return result;
-    return h(
-      React.Fragment,
-      null,
-      result,
-      h(parts.OrganizedRow, { key: "po-row", performer: performer })
-    );
+    return performer
+      ? h(parts.OrganizedRow, { key: "po-row", performer: performer })
+      : null;
   });
 
   /* The narrow variant of the same panel, shown when the page is scrolled and the
-   * details collapse into a strip. Patching only the full one would make the switch
+   * details collapse into a strip. Patching only the full one would make the control
    * disappear halfway down the page. */
-  api.patch.after("CompressedPerformerDetailsPanel", function (props, result) {
+  attach("CompressedPerformerDetailsPanel", "after", function (props) {
     var performer = performerOf(props, "CompressedPerformerDetailsPanel");
-    if (!performer) return result;
-    return h(
-      React.Fragment,
-      null,
-      result,
-      h(parts.CardBadge, { key: "po-compressed", performer: performer, inline: true })
-    );
+    return performer
+      ? h(parts.CardBadge, { key: "po-compressed", performer: performer, inline: true })
+      : null;
   });
 
   /* ------------------------------------------------------- the performer card */
@@ -73,15 +99,11 @@
   // The overlay layer of a card: the corner where Stash puts its own badges, so the
   // icon lands where a user already looks for card state instead of on top of the
   // image (requirements 9, 23).
-  api.patch.after("PerformerCard.Overlays", function (props, result) {
+  attach("PerformerCard.Overlays", "after", function (props) {
     var performer = performerOf(props, "PerformerCard.Overlays");
-    if (!performer) return result;
-    return h(
-      React.Fragment,
-      null,
-      result,
-      h(parts.CardBadge, { key: "po-badge", performer: performer })
-    );
+    return performer
+      ? h(parts.CardBadge, { key: "po-badge", performer: performer })
+      : null;
   });
 
   /* --------------------------------------------------------------- the list */
@@ -89,17 +111,12 @@
   // `PerformerList` is handed `{ performers, filter, selectedIds, onSelectChange }`,
   // which is exactly the quick filter's input and the bulk action's input. The strip
   // goes *before* the rendered grid: a bar under forty cards is a bar nobody finds.
-  api.patch.after("PerformerList", function (props, result) {
-    return h(
-      React.Fragment,
-      null,
-      h(parts.ListToolbar, {
-        key: "po-toolbar",
-        filter: props.filter,
-        selectedIds: props.selectedIds,
-      }),
-      result
-    );
+  attach("PerformerList", "before", function (props) {
+    return h(parts.ListToolbar, {
+      key: "po-toolbar",
+      filter: props && props.filter,
+      selectedIds: props && props.selectedIds,
+    });
   });
 
   PO.log("UI attached: performer page, card, and list toolbar");

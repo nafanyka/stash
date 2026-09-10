@@ -5,7 +5,7 @@ description: >-
   can select on it server-side and a filter preset saves it like any other. A
   switch on the performer page, an icon on the card, and Set organized /
   Set unorganized for a whole selection. Nothing sets it but you.
-version: 1.0.0
+version: 1.0.1
 url: https://github.com/nafanyka/stash
 
 # No exec block: there is no backend. Everything this plugin does is a mutation the

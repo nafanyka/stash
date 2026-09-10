@@ -129,16 +129,35 @@ class TestPublicApi:
 
 
 class TestAttachment:
+    POINTS = {"PerformerDetailsPanel", "CompressedPerformerDetailsPanel",
+              "PerformerCard.Overlays", "PerformerList"}
+
     def test_it_only_uses_published_patch_points(self):
         # Anything not on Stash's published list is an internal, and patching an
         # internal is what breaks on an update.
-        published = {
-            "PerformerDetailsPanel", "CompressedPerformerDetailsPanel",
-            "PerformerCard.Overlays", "PerformerList",
-        }
-        used = set(re.findall(r'api\.patch\.\w+\("([^"]+)"', source("ui", "patches.js")))
-        assert used <= published
-        assert used == published
+        used = set(re.findall(r'attach\("([^"]+)"', source("ui", "patches.js")))
+        assert used == self.POINTS
+
+    def test_the_patch_result_is_read_as_the_last_argument(self):
+        """React error #31, and why the handlers do not name their arguments.
+
+        Stash calls an `after` patch as `afterFn.apply(ctx, args.concat(result))`, and
+        `args` is what React passed the component - which is `(props, context)`, not
+        `(props)`. A handler written `function (props, result)` therefore receives the
+        empty legacy-context object as `result`, and returning it as a child is
+        "Objects are not valid as a React child (found: object with keys {})".
+        """
+        text = source("ui", "patches.js")
+        # One place calls PluginApi.patch at all, and it names no argument it does not
+        # count first. (The prose above quotes the wrong form on purpose, so this
+        # cannot be a substring check on the whole file.)
+        assert text.count("api.patch.") == 1
+        assert "api.patch.after(name, function () {" in text
+        assert "var result = arguments[arguments.length - 1];" in text
+
+    def test_a_control_that_throws_does_not_take_the_page_with_it(self):
+        assert "return result;" in source("ui", "patches.js")
+        assert "catch (error)" in source("ui", "patches.js")
 
     def test_nothing_touches_the_dom(self):
         # A plugin that inserts nodes by hand has to clean them up on every SPA
