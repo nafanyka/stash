@@ -1,0 +1,118 @@
+/*
+ * PerformerOrganized styling.
+ *
+ * Written to disappear: colours come from the Bootstrap variables Stash's own themes
+ * set, so the controls follow whatever theme is in use instead of announcing that a
+ * plugin drew them. Every selector is prefixed `po-`, and nothing here restyles a
+ * Stash class, so no other plugin's UI can be disturbed by it (requirement 21).
+ */
+
+/* ------------------------------------------------------------- performer page */
+
+.po-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.po-row-label {
+  font-weight: 600;
+}
+
+.po-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.po-switch-text {
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------- performer card */
+
+/* Sits in the card's overlay corner, over the image, so it needs its own contrast
+   rather than borrowing the page's. Small, and quiet until hovered. */
+.po-card-badge {
+  position: absolute;
+  top: 0.35rem;
+  left: 0.35rem;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.12s ease-in-out;
+}
+
+.po-card-badge:hover,
+.po-card-badge:focus-visible {
+  opacity: 1;
+}
+
+/* Organized is a state worth seeing without hovering; not organized is the default
+   and stays out of the way. */
+.po-card-badge.po-on {
+  opacity: 0.9;
+  color: var(--success, #28a745);
+}
+
+.po-card-badge[disabled] {
+  cursor: progress;
+}
+
+/* --------------------------------------------------------------- list toolbar */
+
+.po-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.75rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 4px;
+}
+
+.po-quick,
+.po-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.po-quick-label {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #868e96);
+}
+
+.po-bulk-count {
+  font-size: 0.85rem;
+  color: var(--text-muted, #868e96);
+}
+
+.po-bulk .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* The compressed details strip is a row, not a card: the same control, without the
+   corner positioning that would drop it on top of whatever is behind it. */
+.po-card-badge.po-inline {
+  position: static;
+  background: transparent;
+  opacity: 0.85;
+}

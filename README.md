@@ -17,6 +17,9 @@ scrapers/<Name>/<Name>.yml    scraper manifest (+ .py next to it)
   plugins/FastDiscovery/      runs every stash-box and every URL scraper reachable
                               from a scene, then one review table; nothing is
                               written until you apply, and the results are then gone
+  plugins/PerformerOrganized/ the Organized flag scenes have, for performers - kept
+                              in the performer's own custom_fields, so the standard
+                              Performers filter selects on it server-side
 common/python/stash_common/   shared helpers, bundled into packages that import them
 docs/                         architecture, schema and dev notes for both plugins
 tests/                        pytest suite, no Stash server needed
@@ -40,6 +43,14 @@ scraper — if any — knows the scene, and FastDiscovery when you want everythi
 install knows about a scene in front of you at once. See
 [`plugins/ScrapeDiscovery/README.md`](plugins/ScrapeDiscovery/README.md) and
 [`plugins/FastDiscovery/README.md`](plugins/FastDiscovery/README.md).
+
+Separate from all three, and about performers rather than scenes:
+**[PerformerOrganized](plugins/PerformerOrganized/README.md)** adds the *Organized*
+flag Stash gives scenes, galleries and images to performers as well — a switch on the
+performer page, an icon on the card, bulk *Set organized*, and a server-side
+`Organized = Yes/No` filter in the standard Performers list. It stores the flag in the
+performer's own `custom_fields`, so nothing about it depends on the plugin staying
+installed.
 
 One `.yml` per folder, named after the folder. Stash scans the scrapers directory
 recursively and tries to load **every** `.yml` it finds as a scraper config, so a

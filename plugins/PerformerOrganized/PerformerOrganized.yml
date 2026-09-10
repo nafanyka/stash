@@ -1,0 +1,22 @@
+name: Performer Organized
+description: >-
+  The Organized flag Stash gives scenes, galleries and images, for performers.
+  Stored in the performer's own custom_fields, so the standard Performers filter
+  can select on it server-side and a filter preset saves it like any other. A
+  switch on the performer page, an icon on the card, and Set organized /
+  Set unorganized for a whole selection. Nothing sets it but you.
+version: 1.0.0
+url: https://github.com/nafanyka/stash
+
+# No exec block: there is no backend. Everything this plugin does is a mutation the
+# browser already has an authenticated session for, and Stash's own GraphQL API does
+# the storing, the filtering and the bulk update.
+ui:
+  javascript:
+    # Order matters - these are plain classic scripts, and each one builds on the
+    # namespace the one before it created.
+    - ui/api.js
+    - ui/components.js
+    - ui/patches.js
+  css:
+    - ui/performerorganized.css
