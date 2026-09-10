@@ -161,17 +161,31 @@
     var client = api.libraries.Apollo.useApolloClient();
     var toast = api.hooks.useToast();
     var history = Router.useHistory ? Router.useHistory() : null;
+    var location = Router.useLocation ? Router.useLocation() : null;
     var busy = React.useState(false);
     PO.attach(client);
 
-    var filter = props.filter;
+    // The filter comes from the page's address, not from the list's props: see the
+    // comment at the top of filter.js. `useLocation` also makes this re-render when
+    // the filter changes by any other route - the filter builder, the back button, a
+    // saved filter - so the three buttons never disagree with the list beside them.
+    var search = location ? location.search
+      : (typeof window !== "undefined" ? window.location.search : "");
+    var state = PO.filter.readState(search);
+
     var selected = props.selectedIds;
     var count = selected && typeof selected.size === "number" ? selected.size : 0;
-    var state = filter ? PO.filterState(filter) : null;
 
     function choose(next) {
-      if (!filter || !history) return;
-      history.push({ search: PO.searchFor(PO.withState(filter, next)) });
+      var target = PO.filter.searchWith(search, next);
+      PO.log("filter organized=" + String(next) + " -> " + (target || "(none)"));
+      if (history) {
+        history.push({ search: target });
+      } else {
+        // No router in reach. A full navigation is worse than a route change, and
+        // still better than a button that does nothing.
+        window.location.search = target;
+      }
     }
 
     function apply(organized) {
@@ -203,7 +217,6 @@
           size: "sm",
           variant: active ? "primary" : "secondary",
           className: "po-tab",
-          disabled: !filter || !history,
           onClick: function () { choose(value); },
         },
         text

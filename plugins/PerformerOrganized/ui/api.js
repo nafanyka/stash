@@ -202,74 +202,6 @@
       });
   }
 
-  /* ---------------------------------------------------------------- filtering */
-
-  /* The organized state a list filter is currently asking for: true, false or null.
-   *
-   * Read out of the filter the list already has, so the quick control agrees with the
-   * filter builder: set the criterion by hand in Filters and the control shows it.
-   */
-  function filterState(filter) {
-    var entries = customFieldEntries(filter);
-    for (var i = 0; i < entries.length; i += 1) {
-      if (entries[i].field !== FIELD) continue;
-      if (entries[i].modifier === "NOT_NULL") return true;
-      if (entries[i].modifier === "IS_NULL") return false;
-    }
-    return null;
-  }
-
-  function customFieldEntries(filter) {
-    var out = [];
-    ((filter && filter.criteria) || []).forEach(function (criterion) {
-      var option = criterion.criterionOption || {};
-      if (option.type !== CRITERION) return;
-      (criterion.value || []).forEach(function (entry) { out.push(entry); });
-    });
-    return out;
-  }
-
-  /* The same filter, asking for a different organized state.
-   *
-   * Built with the list model's own methods - `clone`, `makeCriterion`,
-   * `replaceCriteria` - rather than by assembling a URL. The encoding of a criterion
-   * into the query string is Stash's business and has changed before; going through
-   * the model means this keeps working when it changes again.
-   *
-   * `NOT_NULL` and `IS_NULL` rather than comparing to true: `pkg/sqlite/custom_fields.go`
-   * joins these with a LEFT JOIN, so "not organized" includes every performer that has
-   * no custom fields at all - which is nearly all of them on a fresh library. `EQUALS`
-   * uses an inner join and would answer "none" to the question that matters most.
-   */
-  function withState(filter, state) {
-    var next = filter.clone();
-    // Any other custom field the user is filtering on is carried over untouched. Only
-    // this plugin's own entry is added or dropped.
-    var kept = customFieldEntries(filter).filter(function (entry) {
-      return entry.field !== FIELD;
-    });
-    if (state !== null) {
-      kept.push({ field: FIELD, modifier: state ? "NOT_NULL" : "IS_NULL", value: [] });
-    }
-    if (kept.length) {
-      var criterion = next.makeCriterion(CRITERION);
-      criterion.value = kept;
-      next.replaceCriteria(CRITERION, [criterion]);
-    } else {
-      next.replaceCriteria(CRITERION, []);
-    }
-    // A filter change that keeps the page number lands the user on page 4 of a result
-    // set with two pages.
-    next.currentPage = 1;
-    return next;
-  }
-
-  function searchFor(filter) {
-    var query = filter.makeQueryParameters();
-    if (typeof query !== "string") return "";
-    return query.charAt(0) === "?" ? query : "?" + query;
-  }
-
   /* --------------------------------------------------------------------- api */
 
   window.PerformerOrganized = {
@@ -287,10 +219,10 @@
     setPerformerOrganized: setPerformerOrganized,
     setPerformersOrganized: setPerformersOrganized,
 
-    // Filtering
-    filterState: filterState,
-    withState: withState,
-    searchFor: searchFor,
+    // Filtering is added by filter.js, which loads next: PO.filter.{readState,
+    // searchWith}. It works on the page's query string rather than on a
+    // ListFilterModel, because the query string is the one interface both ends
+    // already agree on - see the comment at the top of that file.
   };
 
   log("storage layer ready; flag lives in custom_fields." + FIELD);

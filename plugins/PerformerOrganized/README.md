@@ -60,8 +60,16 @@ Two ways in, both the same query.
 Organized   [ Any ] [ Yes ] [ No ]
 ```
 
-It rewrites the list's own filter and navigates. What comes back is the standard
+It rewrites the page's own query string and navigates. What comes back is the standard
 Performers list — same grid, same paging, same everything — filtered by the server.
+
+> It edits the URL rather than the list's `ListFilterModel` on purpose. Going through
+> the model would be tidier, but it needs the patched component to hand its filter over,
+> and `PerformerList` does not pass one in every Stash build — which showed up as three
+> buttons that were disabled, with no click, no console error and no request to explain
+> why. The query string is the interface both ends already agree on: Stash writes it
+> from the filter builder and reads it back on every navigation, so it cannot be absent,
+> and a criterion put there is indistinguishable from one set by hand.
 
 **The filter builder**, for a filter you want to keep or combine:
 
@@ -108,7 +116,7 @@ in the session before calling them from somewhere that has never shown a control
 
 ## How it attaches
 
-Three published plugin patch points, no DOM surgery and no component replacement:
+Four published plugin patch points, no DOM surgery and no component replacement:
 
 | Where | Patch point | What is added |
 | --- | --- | --- |

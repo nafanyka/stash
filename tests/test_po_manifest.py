@@ -9,9 +9,13 @@ watching a test suite. So that is what these check.
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import shutil
+import subprocess
 
+import pytest
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -52,9 +56,11 @@ class TestManifest:
         assert missing == []
 
     def test_the_scripts_are_loaded_in_dependency_order(self):
-        # Classic scripts, no modules: components.js reads the namespace api.js makes,
-        # and patches.js reads the components. Reordering these silently loads nothing.
-        assert ui_scripts() == ["ui/api.js", "ui/components.js", "ui/patches.js"]
+        # Classic scripts, no modules: filter.js and components.js read the namespace
+        # api.js makes, and patches.js reads the components. Reordering these silently
+        # loads nothing.
+        assert ui_scripts() == ["ui/api.js", "ui/filter.js", "ui/components.js",
+                                "ui/patches.js"]
 
     def test_it_has_a_version_and_a_description(self):
         # Both go into the source index; a package without them installs as a blank row.
@@ -86,26 +92,43 @@ class TestTheFlag:
 
 
 class TestFiltering:
+    """The quick control edits the page's query string, which is the interface Stash
+    and the plugin already share. The encoding is Stash's, mirrored - so it is worth
+    running against the real file rather than asserting about its source."""
+
+    CHECK = os.path.join(HERE, "po_filter_check.js")
+
     def test_it_filters_by_null_not_by_equality(self):
         # Stash joins IS_NULL/NOT_EQUALS with a LEFT JOIN and EQUALS with an inner one,
-        # so only the null form includes performers that have no custom fields at all.
-        text = source("ui", "api.js")
+        # so only the null form includes performers that have no custom fields at all -
+        # which, on a fresh library, is all of them.
+        text = source("ui", "filter.js")
         assert '"NOT_NULL"' in text and '"IS_NULL"' in text
-        assert '"EQUALS"' not in text
 
-    def test_the_url_is_built_by_stashs_own_model(self):
-        # Hand-encoding the criterion query string would break the next time Stash
-        # changes it. clone/makeCriterion/replaceCriteria/makeQueryParameters are the
-        # model's own methods.
-        text = source("ui", "api.js")
-        for method in ("filter.clone()", "makeCriterion(CRITERION)",
-                       "replaceCriteria(CRITERION", "makeQueryParameters()"):
-            assert method in text
+    def test_it_does_not_depend_on_the_list_handing_over_its_filter(self):
+        """What the first version got wrong.
 
-    def test_other_custom_field_criteria_are_carried_over(self):
-        # Switching Organized must not throw away a filter the user set on some other
-        # custom field.
-        assert "entry.field !== FIELD" in source("ui", "api.js")
+        `PerformerList` does not pass a `filter` prop in every Stash build, and the
+        control that needed one rendered with all three buttons disabled: no click, no
+        console error, no request. The query string is always there.
+        """
+        text = source("ui", "components.js")
+        assert "PO.filter.readState(search)" in text
+        assert "props.filter" not in text
+
+    @pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+    def test_the_encoding_survives_a_round_trip(self):
+        """Runs ui/filter.js under node against fixtures.
+
+        A criterion Stash cannot parse is not an error the user sees - it is a filter
+        that quietly returns everything, which looks like the flag not having been
+        saved. So this checks the actual encoder, not a description of it.
+        """
+        result = subprocess.run(["node", self.CHECK], capture_output=True, text=True)
+        checks = json.loads(result.stdout.strip().splitlines()[-1])
+        failed = [one["name"] for one in checks if not one["ok"]]
+        assert failed == [], "%s / %s" % (failed, result.stdout[:400])
+        assert len(checks) >= 20
 
 
 class TestPublicApi:
