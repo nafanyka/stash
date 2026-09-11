@@ -32,11 +32,15 @@
 /* ------------------------------------------------------------- performer card */
 
 /* Sits in the card's overlay corner, over the image, so it needs its own contrast
-   rather than borrowing the page's. Small, and quiet until hovered. */
+   rather than borrowing the page's. Small, and quiet until hovered.
+
+   Top *right*, not top left: the list's own selection checkbox lives in the top left
+   corner, and a badge there covers it - which costs the user the one control they need
+   before the bulk actions are of any use. */
 .po-card-badge {
   position: absolute;
   top: 0.35rem;
-  left: 0.35rem;
+  right: 0.35rem;
   z-index: 2;
   display: inline-flex;
   align-items: center;

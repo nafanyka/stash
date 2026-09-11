@@ -21,10 +21,10 @@
       filter can select on it server-side and a filter preset saves it like any other.
       A switch on the performer page, an icon on the card, and Set organized / Set
       unorganized for a whole selection. Nothing sets it but you.
-  version: 1.0.2-53ccbf0
-  date: '2026-09-10 17:07:34'
+  version: 1.0.3-5580e5e
+  date: '2026-09-10 17:19:09'
   path: PerformerOrganized.zip
-  sha256: a0d1868ca037e40ba7faec799491e0e4e8acfa61d03e2b272a4b4d8024581190
+  sha256: b9dceb0dabd3a60810b9bc0d9b75b065cdd9f60ad44446a8dad1a8b4080ada0b
   requires: []
 - id: ScrapeAllSettings
   name: ScrapeAll Settings
