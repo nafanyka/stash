@@ -77,6 +77,10 @@ class StashPerformer:
 
         # What the leading number in the measurements string turned out to mean. Kept on
         # the performer so nothing downstream has to guess, and so a debug log can say.
+        self.raw_measurements = None
+        self.first_value = None
+        self.raw_waist = None
+        self.raw_hips = None
         self.measurement_type = None
         self.first_value_is_bust = None
         self.band_estimated = False
@@ -109,6 +113,7 @@ class StashPerformer:
             self.height_cm = float(self.height_cm)
 
         parsed = measurements_module.parse(self.measurements)
+        self.raw_measurements = parsed.raw
         self.measurements = parsed.text
 
         if parsed.error == measurements_module.MISSING:
@@ -123,6 +128,9 @@ class StashPerformer:
             return
 
         self.cupsize = parsed.cup
+        self.first_value = parsed.first_value
+        self.raw_waist = parsed.raw_waist
+        self.raw_hips = parsed.raw_hips
         self.band = parsed.band
         self.bust = parsed.bust
         self.waist = parsed.waist
@@ -137,6 +145,34 @@ class StashPerformer:
             log.warning(f"{self}: {note}")
 
         log.debug(f"{self}: {measurements_module.describe(parsed)}")
+        self.log_pipeline()
+
+    def log_pipeline(self):
+        """What the string said, and what came out of it, stage by stage.
+
+        Debug level, so it costs nothing on a normal run and can be turned on in
+        config.py when a performer's numbers need explaining. Printing the same three
+        numbers at two stages is the point: `first_value` is what the string said and
+        `bust` is what the pipeline carries, and for a metric bust the second has to be
+        the first converted and nothing more.
+        """
+        def inches(value):
+            return "%.2f" % value if value is not None else "None"
+
+        estimated = " (estimated from bust - cup difference)" if self.band_estimated else ""
+        log.debug("\n".join([
+            f"{self}: pipeline trace",
+            f"Raw measurements: {self.raw_measurements}",
+            "Parsed:",
+            f"  first_value={self.first_value} cup={self.cupsize} "
+            f"waist={self.raw_waist} hips={self.raw_hips}",
+            f"  type={self.measurement_type} "
+            f"first_value_is_bust={self.first_value_is_bust}",
+            "After conversion:",
+            f"  bust={inches(self.bust)} waist={inches(self.waist)} "
+            f"hips={inches(self.hips)}",
+            f"  band={inches(self.band)}{estimated}",
+        ]))
 
     def calculate_bmi(self):
         if not self.weight or not self.height_cm:
@@ -145,6 +181,13 @@ class StashPerformer:
         self.bmi = (self.weight-breast_weight) / (self.height_cm/100) ** 2
 
     def match_body_shapes(self):
+        # The same three numbers again, read off the performer at the moment they are
+        # handed over. If they differ from the line above, something between the two
+        # changed them - which is the whole question a metric bust raises.
+        log.debug("\n".join([
+            f"{self}: before calculate_shape",
+            f"  bust={self.bust} waist={self.waist} hips={self.hips}",
+        ]))
         self.body_shapes = calculate_shape(self)
         for body_shape in self.body_shapes:
             self.tags_list.append(body_shape)
@@ -156,8 +199,11 @@ class StashPerformer:
                 # the warning shows. Three raw numbers would leave whoever reads it to do
                 # the subtraction themselves before they could tell whether the data or
                 # the rules were at fault.
-                log.warning(f"{self}: could not classify bodyshape:\n"
-                            + shape_diagnostics(self.bust, self.waist, self.hips))
+                log.warning(
+                    f"{self}: could not classify bodyshape:\n"
+                    f"measurements={self.raw_measurements!r} "
+                    f"read as {self.measurement_type}\n"
+                    + shape_diagnostics(self.bust, self.waist, self.hips))
                 self.status = STATUS_NO_SHAPE
                 self.tags_list.append(PBCError.NO_BODYSHAPE_MATCH)
 

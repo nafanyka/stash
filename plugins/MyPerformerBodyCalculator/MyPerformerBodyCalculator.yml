@@ -5,7 +5,7 @@ description: >-
   reads metric bust sizes correctly (90G-60-80 is a 90cm bust, not a 90cm band) and
   splits the run in two: Add New calculates only performers it has not seen before,
   Full Update rebuilds the library.
-version: 1.0.0
+version: 1.0.1
 url: https://github.com/nafanyka/stash
 exec:
   - python

@@ -95,6 +95,9 @@ class Measurements:
     cup_known: bool = True               # False when BreastCup has no such cup
     bust_band_difference: int | None = None
 
+    raw_waist: float | None = None       # as written, before any conversion
+    raw_hips: float | None = None
+
     band: float | None = None            # inches
     bust: float | None = None            # inches
     waist: float | None = None           # inches
@@ -176,6 +179,8 @@ def parse(raw) -> Measurements:
     cup = (groups.get("cup") or "").upper() or None
 
     out.first_value = first
+    out.raw_waist = waist
+    out.raw_hips = hips
     out.cup = cup
 
     # ---------------------------------------------------------------- units
