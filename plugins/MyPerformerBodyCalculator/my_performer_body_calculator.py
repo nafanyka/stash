@@ -81,6 +81,8 @@ def main():
         full_update()
     elif mode == "destroy_managed_tags":
         destroy_managed_tags()
+    elif mode == "recalculate_performer":
+        recalculate_performer()
     else:
         log.error(f"unknown mode '{mode}'")
 
@@ -92,10 +94,9 @@ def destroy_managed_tags():
     *not*: it destroys the tag definitions, so it is not how a full update resets - that
     takes the tags off performers and leaves the tags themselves alone.
     """
-    marker = TAG_MANAGED_BY.replace("[", "\\[").replace("]", "\\]")
-    tags = stash.find_tags(f={"description": {"value": f"^{marker}", "modifier": "MATCHES_REGEX"}}, fragment="id")
+    tags = sorted(managed_tag_ids())
     log.info(f"Deleting {len(tags)} tags...")
-    stash.destroy_tags([t["id"] for t in tags])
+    stash.destroy_tags(tags)
 
 
 # ----------------------------------------------------------------- shared pipeline
@@ -119,16 +120,25 @@ def enumtag_stash_init(enum_class, tag_id_list=[]):
     for enum in enum_class:
         if not isinstance(enum, config.TAGS_TO_USE):
             continue
-        tag_alias_id = f"{TAG_ALIAS_PREFIX}{enum}"
-        stash_tag = stash.find_tag(tag_alias_id, on_multiple=OnMultipleMatch.RETURN_NONE)
-        if stash_tag:
-            enum.tag_id = stash_tag["id"]
-        else:
-            tag_create_input = enum.value.tag_create_input(str(enum), tag_alias_id)
-            enum.tag_id = stash.find_tag(tag_create_input, create=True)["id"]
-            claim_alias(enum.tag_id, tag_alias_id)
-        tag_id_list.append(enum.tag_id)
+        tag_id_list.append(resolve_tag(enum))
     return tag_id_list
+
+
+def resolve_tag(enum):
+    """One enum's tag in Stash, found by this plugin's alias or created.
+
+    The body of the original's loop, lifted out so the update hook can resolve the eight
+    or nine tags one performer needs without walking all sixty.
+    """
+    tag_alias_id = f"{TAG_ALIAS_PREFIX}{enum}"
+    stash_tag = stash.find_tag(tag_alias_id, on_multiple=OnMultipleMatch.RETURN_NONE)
+    if stash_tag:
+        enum.tag_id = stash_tag["id"]
+    else:
+        tag_create_input = enum.value.tag_create_input(str(enum), tag_alias_id)
+        enum.tag_id = stash.find_tag(tag_create_input, create=True)["id"]
+        claim_alias(enum.tag_id, tag_alias_id)
+    return enum.tag_id
 
 
 def claim_alias(tag_id, tag_alias_id):
@@ -294,6 +304,146 @@ def find_performers():
                       "calculated. Stash v0.28 or newer is required.")
             raise SystemExit(1)
         raise
+
+
+# ------------------------------------------------------------------------ the hook
+
+# The fields the calculation actually reads. An update that touched none of them cannot
+# change any tag, so there is nothing to recalculate.
+CALCULATION_FIELDS = frozenset({
+    "measurements", "height_cm", "weight", "ethnicity", "gender",
+})
+
+
+def recalculate_performer():
+    """One performer, recalculated because Stash says it changed.
+
+    Fired by `Performer.Update.Post` and `Performer.Create.Post`. Two things make this
+    safe to hang off an update hook:
+
+    **It does not react to its own writes.** `bulkPerformerUpdate` fires the update hook
+    once *per performer it touched*, so a plugin that recalculates on every update and
+    then writes tags would call itself for ever. `hookContext.inputFields` says which
+    fields the update carried, and this plugin only ever writes `tag_ids` and
+    `custom_fields` - neither of which the calculation reads. An update that touched
+    none of `CALCULATION_FIELDS` is ignored before anything is fetched.
+
+    **It writes only differences.** The tags the performer should have are compared with
+    the ones it has, and only the difference is sent. A recalculation that changes
+    nothing writes nothing - which means that even if the guard above were somehow
+    bypassed, the second pass would be silent and the chain would stop there.
+    """
+    if not getattr(config, "RECALCULATE_ON_UPDATE", True):
+        log.debug("RECALCULATE_ON_UPDATE is off in config.py; ignoring hook")
+        return
+
+    context = (fragment.get("args") or {}).get("hookContext") or {}
+    performer_id = context.get("id")
+    trigger = context.get("type") or ""
+
+    if not performer_id:
+        log.error(f"{trigger or 'hook'} fired without a performer id; nothing to do")
+        return
+
+    if not _hook_is_relevant(context, trigger, performer_id):
+        return
+
+    performer = stash.find_performer(int(performer_id), fragment=PERFORMER_FRAGMENT)
+    if not performer:
+        log.debug(f"performer {performer_id} is gone; nothing to recalculate")
+        return
+
+    tally = Tally()
+    name = f"{performer.get('name')} ({performer_id})"
+
+    tag_updates, completed = process_performers([performer], tally)
+    if not completed:
+        log.warning(f"{name}: not recalculated, see the error above")
+        return
+
+    wanted = set()
+    for enum in tag_updates:
+        if not isinstance(enum, config.TAGS_TO_USE):
+            continue
+        try:
+            wanted.add(str(resolve_tag(enum)))
+        except Exception as e:
+            log.error(f"{name}: could not resolve the {enum} tag: {e}")
+            return
+
+    managed = managed_tag_ids()
+    present = {str(t["id"]) for t in (performer.get("tags") or [])}
+    ours = present & managed
+
+    add = sorted(wanted - ours)
+    remove = sorted(ours - wanted)
+    marked = is_processed(performer)
+
+    if not add and not remove and marked:
+        log.debug(f"{name}: recalculated, nothing changed")
+        return
+
+    try:
+        if remove:
+            stash.update_performers({"ids": [str(performer_id)],
+                                     "tag_ids": {"ids": remove, "mode": "REMOVE"}})
+        if add:
+            stash.update_performers({"ids": [str(performer_id)],
+                                     "tag_ids": {"ids": add, "mode": "ADD"}})
+    except Exception as e:
+        log.error(f"{name}: could not update tags: {e}")
+        return
+
+    if not marked:
+        set_markers([str(performer_id)], tally)
+
+    log.info(f"{name}: recalculated after {trigger or 'an update'} - "
+             f"{len(add)} tag(s) added, {len(remove)} removed")
+
+
+def _hook_is_relevant(context, trigger, performer_id):
+    """Should this hook firing lead to a recalculation?
+
+    A new performer always should. An update should only when it carried a field the
+    calculation reads - which is also what keeps the plugin from answering its own
+    writes.
+    """
+    if trigger.startswith("Performer.Create"):
+        return True
+
+    fields = context.get("inputFields")
+    if not fields:
+        # Without the field list there is no way to tell this update from one of this
+        # plugin's own, and guessing wrong means a plugin that triggers itself for ever.
+        # Skipping is the safe answer; Add New picks the performer up either way.
+        log.warning(f"{trigger} for performer {performer_id} carried no inputFields, so "
+                    "it cannot be told apart from this plugin's own writes - skipped. "
+                    "Run Add New, or Full Update, to recalculate.")
+        return False
+
+    touched = CALCULATION_FIELDS.intersection(fields)
+    if not touched:
+        log.debug(f"performer {performer_id}: update touched {sorted(fields)}, none of "
+                  "which the calculation reads - nothing to do")
+        return False
+
+    log.debug(f"performer {performer_id}: {sorted(touched)} changed, recalculating")
+    return True
+
+
+def managed_tag_ids():
+    """Every tag this plugin manages, in one query.
+
+    By the marker in the description, the way `destroy_managed_tags` finds them, rather
+    than by resolving all sixty-odd enum aliases one at a time: a hook runs once per
+    performer edit, and sixty queries per edit is not a thing to do to a library during
+    a scrape.
+    """
+    marker = TAG_MANAGED_BY.replace("[", "\\[").replace("]", "\\]")
+    found = stash.find_tags(
+        f={"description": {"value": f"^{marker}", "modifier": "MATCHES_REGEX"}},
+        fragment="id")
+    return {str(t["id"]) for t in found}
 
 
 # ---------------------------------------------------------------------- the tasks

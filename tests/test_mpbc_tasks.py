@@ -53,6 +53,12 @@ class FakeStash:
         self.fragment = fragment
         return [dict(p) for p in self.performers]
 
+    def find_performer(self, performer, create=False, fragment=None, on_multiple=None):
+        for one in self.performers:
+            if str(one["id"]) == str(performer):
+                return dict(one)
+        return None
+
     def find_tag(self, tag_in, create=False, fragment=None, on_multiple=None):
         if isinstance(tag_in, str):
             return self.tags_by_alias.get(tag_in)
@@ -82,7 +88,13 @@ class FakeStash:
 
     def find_tags(self, f=None, fragment=None, **kwargs):
         self.tag_filter = f
-        return [{"id": t["id"]} for t in self.tags_by_alias.values()]
+        seen, out = set(), []
+        for tag in list(self.tags_by_alias.values()) + list(self.tags_by_name.values()):
+            if tag["id"] in seen:
+                continue
+            seen.add(tag["id"])
+            out.append({"id": tag["id"]})
+        return out
 
     # -- writes
     def update_performers(self, bulk_input):
@@ -93,12 +105,14 @@ class FakeStash:
         self.destroyed.extend(ids)
 
 
-def run_plugin(tmp_path, mode, performers, monkeypatch):
+def run_plugin(tmp_path, mode, performers, monkeypatch, hook_context=None,
+               fake=None):
     """Run the real entry point with stashapi stubbed out, and hand back the fake."""
     work = tmp_path / "MyPerformerBodyCalculator"
-    shutil.copytree(PLUGIN_DIR, work)
+    if not work.exists():
+        shutil.copytree(PLUGIN_DIR, work)
 
-    fake = FakeStash(performers)
+    fake = fake or FakeStash(performers)
 
     stashapi = types.ModuleType("stashapi")
     log_mod = types.ModuleType("stashapi.log")
@@ -156,8 +170,11 @@ def run_plugin(tmp_path, mode, performers, monkeypatch):
                          ("stashapi.stash_types", types_mod)]:
         monkeypatch.setitem(sys.modules, name, module)
 
+    args = {"mode": mode}
+    if hook_context is not None:
+        args["hookContext"] = hook_context
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(
-        {"args": {"mode": mode}, "server_connection": {}})))
+        {"args": args, "server_connection": {}})))
     monkeypatch.syspath_prepend(str(work))
     # The plugin's own modules must not be resolved from a previous run's copy.
     for name in ("config", "body_tags", "measurements", "performer_calculator"):
@@ -431,3 +448,140 @@ class TestTagsTheOriginalPluginAlreadyMade:
         monkeypatch.setattr(FakeStash, "__init__", preloaded)
         fake, _ = run_plugin(tmp_path, "add_new", [performer(1, "a")], monkeypatch)
         assert "PBC:BodyShape.HOURGLASS" in fake.tags_by_id["77"]["aliases"]
+
+
+def hook(pid, fields, trigger="Performer.Update.Post"):
+    return {"id": str(pid), "type": trigger, "input": {}, "inputFields": list(fields)}
+
+
+class TestTheUpdateHook:
+    """Recalculating one performer when Stash says they changed."""
+
+    def run(self, tmp_path, monkeypatch, performers, context, fake=None):
+        return run_plugin(tmp_path, "recalculate_performer", performers, monkeypatch,
+                          hook_context=context, fake=fake)
+
+    def test_a_measurements_change_recalculates_that_performer(self, tmp_path,
+                                                               monkeypatch):
+        fake, _ = self.run(tmp_path, monkeypatch, [performer(1, "a")],
+                           hook(1, ["measurements"]))
+        assert tag_adds(fake), "nothing was tagged"
+        for update in tag_adds(fake):
+            assert update["ids"] == ["1"]
+
+    @pytest.mark.parametrize("field", ["measurements", "height_cm", "weight",
+                                       "ethnicity", "gender"])
+    def test_every_field_the_calculation_reads_triggers_it(self, tmp_path, monkeypatch,
+                                                           field):
+        fake, _ = self.run(tmp_path, monkeypatch, [performer(1, "a")], hook(1, [field]))
+        assert fake.bulk_updates, f"{field} did not trigger a recalculation"
+
+    def test_only_the_one_performer_is_touched(self, tmp_path, monkeypatch):
+        fake, _ = self.run(tmp_path, monkeypatch,
+                           [performer(1, "a"), performer(2, "b", processed="v1")],
+                           hook(1, ["measurements"]))
+        for update in fake.bulk_updates:
+            assert update["ids"] == ["1"], "the hook reached another performer"
+
+    def test_a_new_performer_is_always_calculated(self, tmp_path, monkeypatch):
+        fake, _ = self.run(tmp_path, monkeypatch, [performer(1, "a")],
+                           hook(1, [], trigger="Performer.Create.Post"))
+        assert tag_adds(fake)
+
+    def test_it_marks_the_performer_as_processed(self, tmp_path, monkeypatch):
+        fake, _ = self.run(tmp_path, monkeypatch, [performer(1, "a")],
+                           hook(1, ["measurements"]))
+        assert marker_writes(fake)
+
+    def test_a_performer_deleted_before_the_hook_ran_is_not_an_error(self, tmp_path,
+                                                                     monkeypatch):
+        fake, _ = self.run(tmp_path, monkeypatch, [], hook(99, ["measurements"]))
+        assert fake.bulk_updates == []
+
+
+class TestTheHookDoesNotAnswerItself:
+    """The loop that makes update hooks dangerous.
+
+    `bulkPerformerUpdate` fires `Performer.Update.Post` once per performer it touched -
+    so a plugin that recalculates on any update and then writes tags calls itself for
+    ever. Two things stop it, and both are tested here.
+    """
+
+    def run(self, tmp_path, monkeypatch, performers, context):
+        return run_plugin(tmp_path, "recalculate_performer", performers, monkeypatch,
+                          hook_context=context)
+
+    @pytest.mark.parametrize("fields", [
+        ["tag_ids"],                  # what this plugin writes when it adds tags
+        ["custom_fields"],            # what it writes when it marks a performer
+        ["ids", "tag_ids"],           # a bulk update of its own
+        ["name"],                     # someone else's edit that changes no measurement
+        ["url", "twitter"],
+    ])
+    def test_an_update_touching_nothing_the_calculation_reads_is_ignored(
+            self, tmp_path, monkeypatch, fields):
+        fake, _ = self.run(tmp_path, monkeypatch, [performer(1, "a")], hook(1, fields))
+        assert fake.bulk_updates == [], f"{fields} caused a write, which would loop"
+
+    def test_an_update_with_no_field_list_is_skipped_rather_than_guessed_at(
+            self, tmp_path, monkeypatch):
+        # Without the list there is no way to tell a user's edit from this plugin's own
+        # write, and guessing wrong is an endless loop.
+        fake, _ = self.run(tmp_path, monkeypatch, [performer(1, "a")], hook(1, []))
+        assert fake.bulk_updates == []
+
+    def test_a_recalculation_that_changes_nothing_writes_nothing(self, tmp_path,
+                                                                 monkeypatch):
+        """The second guard: even a hook that did fire settles after one pass.
+
+        The performer is given the tags the calculation produces and a current marker,
+        so there is no difference to write - and therefore no update to fire the hook
+        again.
+        """
+        # First pass: let the plugin tag a performer and record what it assigned.
+        fake, _ = self.run(tmp_path, monkeypatch, [performer(1, "a")],
+                           hook(1, ["measurements"]))
+        assigned = sorted({tid for u in tag_adds(fake) for tid in u["tag_ids"]["ids"]})
+        assert assigned
+
+        # Second pass: same performer, now carrying those tags and the marker.
+        settled = performer(1, "a", processed="v1", tags=assigned)
+        again = FakeStash([settled])
+        again.tags_by_alias = fake.tags_by_alias
+        again.tags_by_name = fake.tags_by_name
+        again.tags_by_id = fake.tags_by_id
+        fake2, _ = run_plugin(tmp_path / "second", "recalculate_performer", [settled],
+                              monkeypatch, hook_context=hook(1, ["measurements"]),
+                              fake=again)
+        assert fake2.bulk_updates == [], "a settled performer was written to again"
+
+    def test_it_can_be_turned_off(self, tmp_path, monkeypatch):
+        work = tmp_path / "MyPerformerBodyCalculator"
+        shutil.copytree(PLUGIN_DIR, work)
+        (work / "config.py").write_text(
+            (work / "example_config.py").read_text(encoding="utf-8")
+            + "\nRECALCULATE_ON_UPDATE = False\n", encoding="utf-8")
+        fake, _ = self.run(tmp_path, monkeypatch, [performer(1, "a")],
+                           hook(1, ["measurements"]))
+        assert fake.bulk_updates == []
+
+
+class TestTheHookIsDeclared:
+    def test_the_manifest_subscribes_to_both_performer_triggers(self):
+        hooks = manifest()["hooks"]
+        assert len(hooks) == 1
+        assert set(hooks[0]["triggeredBy"]) == {"Performer.Create.Post",
+                                                "Performer.Update.Post"}
+
+    def test_its_mode_is_one_the_entry_point_dispatches(self):
+        with open(os.path.join(PLUGIN_DIR, "my_performer_body_calculator.py"),
+                  encoding="utf-8") as handle:
+            source = handle.read()
+        for entry in manifest()["hooks"]:
+            assert f'"{entry["defaultArgs"]["mode"]}"' in source
+
+    def test_it_does_not_subscribe_to_anything_it_cannot_act_on(self):
+        # Destroy in particular: there is nothing to recalculate for a performer that no
+        # longer exists, and the tags go with it.
+        for entry in manifest()["hooks"]:
+            assert not any("Destroy" in t for t in entry["triggeredBy"])

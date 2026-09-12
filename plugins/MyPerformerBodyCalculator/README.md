@@ -91,7 +91,8 @@ all parse to the same measurement. Every format the original read is still read:
 | **Full Update Performer Body Calculations** | The original's behaviour: strip this plugin's tags off every performer, clear the markers, recalculate everything. |
 | **Destroy Managed Tags** | Deletes this plugin's tags from Stash entirely. |
 
-Both calculation tasks run the same pipeline, so neither can drift from the other.
+Both calculation tasks run the same pipeline, so neither can drift from the other, and
+so does the update hook below.
 
 ### The processed marker
 
@@ -136,6 +137,77 @@ So a tag you added by hand, a tag from another plugin, and a tag the original Pe
 Body Calculator manages are all invisible to it. It is **not** `destroy_managed_tags`:
 the tags themselves stay, with their aliases, descriptions and any renaming you have done
 to them. Only the assignments go.
+
+## 3. Recalculating on change
+
+The two tasks are not the only way tags get written. The plugin also subscribes to
+Stash's performer hooks:
+
+```yaml
+hooks:
+  - name: 'Recalculate on change'
+    triggeredBy:
+      - Performer.Create.Post
+      - Performer.Update.Post
+```
+
+Edit a performer's measurements and their body tags are right again by the time the page
+reloads — no task, no waiting for the next Add New.
+
+Hanging work off an update hook is normally how a plugin hangs a library, so two things
+keep it safe.
+
+### It does not answer its own writes
+
+`bulkPerformerUpdate` fires `Performer.Update.Post` **once per performer it touched**. A
+plugin that recalculates on any update and then writes tags therefore calls itself, for
+every performer, for ever.
+
+`hookContext.inputFields` says which fields the update carried. This plugin acts only on
+
+```
+measurements   height_cm   weight   ethnicity   gender
+```
+
+— the fields the calculation actually reads — and it only ever *writes* `tag_ids` and
+`custom_fields`, which are not among them. Its own writes are therefore ignored before
+anything is even fetched, as is any edit that cannot change a single tag: a rename, a
+URL, an image.
+
+An update that arrives with no field list at all is skipped and says so in the log,
+because a firing that cannot be told from the plugin's own is not one to guess at.
+
+### It writes only differences
+
+The tags the performer should have are compared with the ones they have, and only the
+difference is sent. A recalculation that changes nothing writes nothing — so even if the
+first guard were somehow bypassed, the second pass would be silent and the chain would
+stop there.
+
+That also means an ordinary edit costs at most two small mutations, usually none.
+
+### What it costs
+
+Roughly ten GraphQL queries per performer edit: one for the managed tag set, one for the
+performer, and one per tag the performer turns out to need. The tasks resolve all sixty
+tags up front; a hook that did the same would be sixty queries per edit, which is not a
+thing to do to a library in the middle of a scrape.
+
+Turn it off with
+
+```python
+RECALCULATE_ON_UPDATE = False
+```
+
+in `config.py` if you would rather tag only from the tasks.
+
+### What it does not do
+
+* **Performer.Destroy.Post** is not subscribed to: there is nothing to recalculate for a
+  performer who no longer exists, and their tag assignments go with them.
+* It does not create the tag vocabulary from nothing efficiently — the first hook on a
+  fresh install will create the tags it needs as it goes, one at a time. Run Add New
+  once first if you are starting from scratch.
 
 ## Tags
 
