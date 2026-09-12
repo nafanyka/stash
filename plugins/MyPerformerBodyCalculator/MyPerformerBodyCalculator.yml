@@ -1,0 +1,34 @@
+name: "My Performer Body Calculator"
+description: >-
+  Tags performers from their measurements, height and weight - body shape, breast and
+  butt size, cup, height and BMI. A fork of stg-annon's Performer Body Calculator that
+  reads metric bust sizes correctly (90G-60-80 is a 90cm bust, not a 90cm band) and
+  splits the run in two: Add New calculates only performers it has not seen before,
+  Full Update rebuilds the library.
+version: 1.0.0
+url: https://github.com/nafanyka/stash
+exec:
+  - python
+  - "{pluginDir}/my_performer_body_calculator.py"
+interface: raw
+tasks:
+  - name: 'Add New Performer Body Calculations'
+    description: >-
+      Calculates only performers this plugin has not calculated before, found by the
+      marker it leaves in a performer custom field. Removes nothing and leaves every
+      already-tagged performer alone.
+    defaultArgs:
+      mode: add_new
+  - name: 'Full Update Performer Body Calculations'
+    description: >-
+      Takes this plugin's tags off every performer, clears the processed markers, then
+      recalculates the whole library. Tags added by hand, by other plugins, or by the
+      original Performer Body Calculator are not touched.
+    defaultArgs:
+      mode: full_update
+  - name: 'Destroy Managed Tags'
+    description: >-
+      Deletes this plugin's tags from Stash entirely. Not what Full Update does - that
+      only unassigns them.
+    defaultArgs:
+      mode: destroy_managed_tags

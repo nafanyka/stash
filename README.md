@@ -20,6 +20,9 @@ scrapers/<Name>/<Name>.yml    scraper manifest (+ .py next to it)
   plugins/PerformerOrganized/ the Organized flag scenes have, for performers - kept
                               in the performer's own custom_fields, so the standard
                               Performers filter selects on it server-side
+  plugins/MyPerformerBodyCalculator/  a fork of stg-annon's Performer Body Calculator:
+                              reads metric bust sizes correctly, and splits the run into
+                              Add New and Full Update
 common/python/stash_common/   shared helpers, bundled into packages that import them
 docs/                         architecture, schema and dev notes for both plugins
 tests/                        pytest suite, no Stash server needed

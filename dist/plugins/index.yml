@@ -13,6 +13,19 @@
   path: FastDiscovery.zip
   sha256: 3144b4c7cdd53bd4908b222eb2c1a000ea4d2ff57a5f149f111d12b01d1f87b0
   requires: []
+- id: MyPerformerBodyCalculator
+  name: My Performer Body Calculator
+  metadata:
+    description: 'Tags performers from their measurements, height and weight - body
+      shape, breast and butt size, cup, height and BMI. A fork of stg-annon''s Performer
+      Body Calculator that reads metric bust sizes correctly (90G-60-80 is a 90cm
+      bust, not a 90cm band) and splits the run in two: Add New calculates only performers
+      it has not seen before, Full Update rebuilds the library.'
+  version: 1.0.0-0000000
+  date: '1970-01-01 00:00:00'
+  path: MyPerformerBodyCalculator.zip
+  sha256: 4a58ae641babe570dfba443644000f2de93500f639e5684c48396d0d6930fabb
+  requires: []
 - id: PerformerOrganized
   name: Performer Organized
   metadata:
@@ -21,8 +34,8 @@
       filter can select on it server-side and a filter preset saves it like any other.
       A switch on the performer page, an icon on the card, and Set organized / Set
       unorganized for a whole selection. Nothing sets it but you.
-  version: 1.0.3-5580e5e
-  date: '2026-09-10 17:19:09'
+  version: 1.0.3-854ec18
+  date: '2026-09-11 14:58:25'
   path: PerformerOrganized.zip
   sha256: b9dceb0dabd3a60810b9bc0d9b75b065cdd9f60ad44446a8dad1a8b4080ada0b
   requires: []
