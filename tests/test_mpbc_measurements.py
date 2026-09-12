@@ -102,13 +102,21 @@ class TestTheReportedFailure:
 class TestFormatsThatMustNotBreak:
     """Everything the original understood, still understood the same way."""
 
-    def test_imperial_bra_size_with_waist_and_hips(self):
+    def test_an_imperial_triple_is_a_bust_like_any_other_triple(self):
+        """Changed from the original, deliberately.
+
+        The original read `32D-28-34` as a bra size followed by waist and hips, and
+        derived the bust as band + cup difference. That is the western bra-size
+        convention, and it is right for a bra size - but a performer's measurements
+        field is a bust-waist-hips triple, and reading its first number as a band
+        inflates the bust by the cup. `48DDDD-24-37` is what settles it: a 48" band
+        under a 24" waist is not a body.
+        """
         m = measurements.parse("32D-28-34")
-        assert m.measurement_type == measurements.IMPERIAL_BAND
-        assert m.first_value_is_bust is False
-        assert m.band == 32
-        # bust = band + cup difference, exactly as the original had it
-        assert m.bust == 36
+        assert m.measurement_type == measurements.IMPERIAL_BUST
+        assert m.first_value_is_bust is True
+        assert m.bust == 32
+        assert m.cup == "D"
         assert (m.waist, m.hips) == (28, 34)
 
     def test_the_cup_may_come_first(self):
@@ -127,9 +135,13 @@ class TestFormatsThatMustNotBreak:
         assert m.first_value_is_bust is True
         assert (m.bust, m.waist, m.hips) == (36, 28, 34)
 
-    def test_a_bra_size_on_its_own(self):
+    def test_a_bra_size_on_its_own_is_still_a_band(self):
+        """The one form where the leading number is a band, and the only place the
+        band + cup formula survives: a bra size is a band by definition, and there is no
+        waist or hips here to make a triple of it."""
         m = measurements.parse("32D")
         assert m.measurement_type == measurements.IMPERIAL_BAND
+        assert m.first_value_is_bust is False
         assert m.band == 32
         assert m.bust == 36
         assert m.waist is None and m.hips is None
@@ -189,6 +201,11 @@ class TestUnitsAndSemantics:
         assert m.first_value_is_bust is False
         assert m.band == pytest.approx(29.53, abs=0.01)
 
+    def test_a_triple_is_a_bust_in_either_unit_system(self):
+        # The rule is about the shape of the set, not about its units.
+        assert measurements.parse("90G-60-80").first_value_is_bust is True
+        assert measurements.parse("40J-24-37").first_value_is_bust is True
+
     def test_a_metric_bust_gets_an_estimated_band_so_breast_size_still_works(self):
         # BreastSize and the BMI breast-weight correction both need a band, and a
         # B-W-H triple does not state one. Inverting the cup rule gives it.
@@ -197,8 +214,10 @@ class TestUnitsAndSemantics:
         assert m.band == pytest.approx(35.43 - 7, abs=0.01)
         assert m.breast_volume == pytest.approx((35.43 - 7) / 2 + 7, abs=0.01)
 
-    def test_an_imperial_band_is_not_estimated(self):
-        assert measurements.parse("32D-28-34").band_estimated is False
+    def test_a_stated_band_is_not_estimated(self):
+        assert measurements.parse("32D").band_estimated is False
+        # a triple's band is derived from its bust, so it is
+        assert measurements.parse("32D-28-34").band_estimated is True
 
     def test_an_unknown_cup_is_reported_not_raised(self):
         m = measurements.parse("32ZZZ-28-34")
@@ -318,3 +337,42 @@ class TestTheClassifierItself:
     def test_it_names_the_gap_when_it_knows_it(self):
         assert "no category covers" in body_tags.shape_diagnostics(45, 25, 32)
         assert "no category covers" not in body_tags.shape_diagnostics(36, 26, 36)
+
+
+class TestImperialBustWithACup:
+    """`40J-24-37`, `44DDD-23-33`, `48DDDD-24-37` - already in inches, cup attached.
+
+    These are what the reported busts of 50 and 55 were made of: the leading number was
+    read as a band and the cup added to it.
+    """
+
+    @pytest.mark.parametrize("raw, bust, cup, waist, hips", [
+        ("40J-24-37", 40, "J", 24, 37),
+        ("44DDD-23-33", 44, "DDD", 23, 33),
+        ("48DDDD-24-37", 48, "DDDD", 24, 37),
+        ("40j-24-37", 40, "J", 24, 37),
+        ("40(J)-24-37", 40, "J", 24, 37),
+        ("J40-24-37", 40, "J", 24, 37),
+    ])
+    def test_the_leading_number_is_the_bust(self, raw, bust, cup, waist, hips):
+        m = measurements.parse(raw)
+        assert m.measurement_type == measurements.IMPERIAL_BUST
+        assert m.first_value_is_bust is True
+        assert m.bust == bust
+        assert m.cup == cup
+        assert m.waist == waist
+        assert m.hips == hips
+
+    @pytest.mark.parametrize("raw, inflated", [
+        ("40J-24-37", 50),      # 40 + 10 for J
+        ("44DDD-23-33", 50),    # 44 + 6 for DDD
+        ("48DDDD-24-37", 55),   # 48 + 7 for DDDD
+    ])
+    def test_the_number_the_old_reading_produced_is_gone(self, raw, inflated):
+        assert measurements.parse(raw).bust != inflated
+
+    def test_the_cup_is_still_recorded(self):
+        # It is not used to move the bust, but it is still the performer's cup size and
+        # still becomes a BreastCup tag.
+        assert measurements.parse("48DDDD-24-37").cup == "DDDD"
+        assert body_tags.BreastCup.match_threshold("DDDD") is body_tags.BreastCup.G

@@ -135,21 +135,52 @@ class TestMetricBustReachesTheClassifierUntouched:
         assert at_classification["bust"] == pytest.approx(cm / 2.54, abs=1e-9)
 
 
-class TestImperialStillWorksTheOldWay:
-    """`32D-28-34` is a band and a cup, and its bust is still derived from them."""
+class TestImperialTriplesAreBustsToo:
+    """A triple is a bust, waist and hips measurement whichever units it is in.
 
-    def test_the_bust_is_band_plus_cup_difference(self, at_classification):
+    These three are the ones that produced the reported busts of 50 and 55: the leading
+    number was read as a band and the cup added to it.
+    """
+
+    @pytest.mark.parametrize("raw, bust, cup, waist, hips", [
+        ("40J-24-37", 40, "J", 24, 37),
+        ("44DDD-23-33", 44, "DDD", 23, 33),
+        ("48DDDD-24-37", 48, "DDDD", 24, 37),
+    ])
+    def test_the_values_at_the_moment_of_classification(self, at_classification, raw,
+                                                        bust, cup, waist, hips):
+        build(raw)
+        assert at_classification["type"] == "imperial_bust"
+        assert at_classification["bust"] == bust
+        assert at_classification["cup"] == cup
+        assert at_classification["waist"] == waist
+        assert at_classification["hips"] == hips
+
+    @pytest.mark.parametrize("raw, inflated", [
+        ("40J-24-37", 50), ("44DDD-23-33", 50), ("48DDDD-24-37", 55),
+    ])
+    def test_the_inflated_bust_never_reaches_the_classifier(self, at_classification,
+                                                            raw, inflated):
+        build(raw)
+        assert at_classification["bust"] != inflated
+
+    def test_the_western_bra_size_form_changed_with_them(self, at_classification):
+        # Deliberate, and the one behaviour knowingly given up: `32D-28-34` really is a
+        # bra size in western performer databases, and its true bust is nearer 36. A
+        # triple cannot be read two ways at once, and the data that has to work is the
+        # data with a 48" first number and a 24" waist.
         build("32D-28-34")
-        assert at_classification["type"] == "imperial_band"
-        assert at_classification["bust"] == 36     # 32 + 4 for D
-        assert at_classification["waist"] == 28
-        assert at_classification["hips"] == 34
+        assert at_classification["type"] == "imperial_bust"
+        assert at_classification["bust"] == 32
         assert at_classification["cup"] == "D"
 
-    def test_the_band_is_kept_as_measured(self):
-        performer = build("32D-28-34")
+    def test_a_lone_bra_size_still_derives_its_bust(self):
+        # The only place the band + cup formula survives.
+        performer = build("32D")
+        assert performer.measurement_type == "imperial_band"
         assert performer.band == 32
         assert performer.band_estimated is False
+        assert performer.bust == 36
 
     def test_a_bust_with_no_cup_is_left_alone(self, at_classification):
         build("36-28-34")
@@ -204,11 +235,26 @@ class TestTheReportedPerformers:
         ("Himeka Iori", 51, 22, 35),
     ]
 
+    # The strings the diagnostic log showed, and the bust each one really states.
+    ACTUAL = [
+        ("Yuria Yoshine", "48DDDD-24-37", 48, 24, 37),
+        ("Waka Misono", "44DDD-23-33", 44, 23, 33),
+        ("Shiori Tsukada", "40J-24-37", 40, 24, 37),
+    ]
+
+    @pytest.mark.parametrize("name, raw, bust, waist, hips", ACTUAL)
+    def test_the_logged_strings_reach_the_classifier_as_written(
+            self, at_classification, name, raw, bust, waist, hips):
+        build(raw)
+        assert at_classification["bust"] == bust, name
+        assert at_classification["waist"] == waist
+        assert at_classification["hips"] == hips
+
     @pytest.mark.parametrize("name, bust, waist, hips", REPORTED)
     def test_the_reported_bust_is_not_one_this_plugin_can_produce(
             self, at_classification, name, bust, waist, hips):
         """Rebuild the source string for each plausible cup and check the bust that
-        comes out is the converted centimetres, never the inflated number reported."""
+        comes out is the number the string states, never the inflated one reported."""
         for cup, difference in [("F", 6), ("G", 7), ("H", 8), ("I", 9), ("J", 10)]:
             bust_cm = round((bust - difference) * 2.54)
             raw = f"{bust_cm}{cup}-{round(waist * 2.54)}-{round(hips * 2.54)}"
@@ -238,5 +284,5 @@ class TestTheDiagnosticLogging:
         output = LOG.getvalue()
         assert "could not classify bodyshape" in output
         assert "measurements='45D-25-32'" in output
-        assert "read as imperial_band" in output
+        assert "read as imperial_bust" in output
         assert "no category covers" in output

@@ -23,20 +23,24 @@ bust=42 waist=24 hips=31" warnings came from. They were not a classifier problem
 --------------------------------------------------------------------------------------
 How the leading number's meaning is decided
 
-Not by the regex - the two forms are textually identical, `digits + letters`. By the
-whole measurement set:
+By the shape of the measurement set, and not by its units:
 
-* **Three metric values** (`90G-60-80`, `88(E)-58-89`): a B-W-H triple, so the leading
-  number is a bust circumference and the cup is extra information about the same bust.
-  It is never added to anything.  -> `metric_bust`
-* **Three imperial values** (`32D-28-34`): a bra size followed by waist and hips, which
-  is the western convention. The leading number is a band, and the bust is derived from
-  it exactly as the original did.  -> `imperial_band`
-* **A bra size on its own** (`32D`, `75E`): there is no triple to belong to, and a
-  number written with a cup letter and nothing else is a bra size whichever units it is
-  in. The leading number is a band.  -> `imperial_band` / `metric_band`
-* **No cup letter at all** (`36-28-34`, `86/64/89`): the leading number is a bust, in
-  both unit systems, exactly as the original had it.  -> `imperial_bust` / `metric_bust`
+* **A triple** - `<number><cup>-<waist>-<hips>` - is a bust, waist and hips measurement,
+  so the leading number is a **bust circumference** and the cup is extra information
+  about that same bust. It is never added to anything. This holds in both unit systems:
+  `90G-60-80`, `88(E)-58-89`, `40J-24-37`, `48DDDD-24-37`, `32D-28-34`.
+  -> `metric_bust` / `imperial_bust`
+* **A bra size on its own** (`32D`, `75E`) is the one case where the leading number is a
+  **band**: there is no triple for it to belong to, and a number written with a cup
+  letter and nothing else is a bra size, which is a band by definition. The bust is then
+  derived from it as the original did.  -> `imperial_band` / `metric_band`
+* **A triple with no cup** (`36-28-34`, `86/64/89`) is a bust, as it always was.
+
+The original derived the bust from the band for every string that had a cup in it. That
+is the western bra-size convention and it is right for a bra size - but a performer's
+measurements field is a B-W-H triple, and reading its first number as a band inflates
+the bust by the cup difference. `48DDDD-24-37` is the plain evidence: a 48" band under a
+24" waist is not a body, and the string is a 48" bust.
 
 The result carries `first_value_is_bust` and `measurement_type` so no later step has to
 re-derive any of this - and, in particular, so nothing downstream can add a cup
@@ -44,7 +48,7 @@ difference to a number that is already a bust.
 
 Units are decided the way the original decided them - values above 50 are centimetres -
 applied to whichever of bust/band, waist and hips are present rather than requiring all
-three.
+three. Units decide the *conversion*, never the meaning.
 """
 
 from __future__ import annotations
@@ -195,18 +199,20 @@ def parse(raw) -> Measurements:
     if first is None:
         out.measurement_type = WAIST_HIPS
         out.first_value_is_bust = None
-    elif cup is None:
-        # No cup letter: the leading number has only ever meant a bust circumference.
+    elif waist is not None and hips is not None:
+        # A B-W-H triple. The leading number is the bust, whether or not a cup letter is
+        # written beside it and whichever units it is in - the cup describes that bust
+        # rather than adding to it.
         out.measurement_type = METRIC_BUST if out.units == METRIC else IMPERIAL_BUST
         out.first_value_is_bust = True
-    elif waist is not None and hips is not None and out.units == METRIC:
-        # The case the original got wrong: a metric B-W-H triple. The number is the
-        # bust, and the cup says something about that bust rather than adding to it.
-        out.measurement_type = METRIC_BUST
+    elif cup is None:
+        # A lone number with no cup has only ever meant a bust circumference.
+        out.measurement_type = METRIC_BUST if out.units == METRIC else IMPERIAL_BUST
         out.first_value_is_bust = True
     else:
-        # A bra size: either imperial (with or without waist and hips) or metric with no
-        # triple around it to make it a bust.
+        # A bra size on its own: the only form where the leading number is a band, and
+        # the only place `bust = band + cup difference` is still used. A bra size is a
+        # band by definition, and there is no waist or hips here to make a triple of it.
         out.measurement_type = METRIC_BAND if out.units == METRIC else IMPERIAL_BAND
         out.first_value_is_bust = False
 

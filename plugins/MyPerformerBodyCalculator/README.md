@@ -8,49 +8,67 @@ by [@stg-annon](https://github.com/stg-annon) (GPL-3.0, see `LICENSE`). Every ca
 threshold and tag description is his. Two things are different, and they are the reason
 the fork exists.
 
-## 1. Metric bust sizes are read as bust sizes
+## 1. A measurements triple is a bust, not a bra band
 
-`90G-60-80` is the Japanese B-W-H convention: **90 is the bust circumference in
-centimetres** and `G` is a cup size. `32D-28-34` is the western one: **32 is a bra band**
-and the real bust is the band plus the cup difference.
-
-The two are identical as text — digits, letters, waist, hips — so the original matched
-both with one regex and gave both the second meaning:
+The original read every string that had a cup letter in it as a **bra size**, and derived
+the bust from it:
 
 ```
-90G-60-80  ->  90/2.54 = 35.4  ->  35.4 + 7 (G) = 42.4" bust, 23.6" waist, 31.5" hips
+bust = band + cup difference
 ```
 
-A bust ten inches larger than the hips. That is where every
-`could not classify bodyshape bust=42 waist=24 hips=31` came from — not a hole in the
-classifier, a wrong bust handed to it.
-
-Now:
+That is the western bra-size convention, and it is right for a bra size. It is wrong for
+a performer's `measurements` field, which is a bust-waist-hips triple:
 
 ```
-90G-60-80  ->  35.4" bust, 23.6" waist, 31.5" hips, cup G   ->  Figure: Top Hourglass
+90G-60-80     ->  90/2.54 = 35.4  ->  35.4 + 7 (G)  = 42.4" bust
+48DDDD-24-37  ->                      48   + 7 (G)  = 55"   bust
+40J-24-37     ->                      40   + 10 (J) = 50"   bust
+```
+
+Busts ten to eighteen inches larger than the hips, from strings that already stated the
+bust. That is where every `could not classify bodyshape bust=42 waist=24 hips=31` came
+from — not a hole in the classifier, a wrong bust handed to it.
+
+`48DDDD-24-37` is what settles the question: a 48-inch bra **band** under a 24-inch waist
+is not a body. The 48 is a bust.
+
+Now, in both unit systems:
+
+```
+90G-60-80     ->  35.4" bust, 23.6" waist, 31.5" hips, cup G     ->  Top Hourglass
+48DDDD-24-37  ->  48"   bust, 24"   waist, 37"   hips, cup DDDD
+40J-24-37     ->  40"   bust, 24"   waist, 37"   hips, cup J     ->  Top Hourglass
 ```
 
 ### How the leading number's meaning is decided
 
-Not by the regex — by the whole measurement set, and the answer is recorded on the result
-as `measurement_type` and `first_value_is_bust` so nothing downstream can re-derive it
-differently.
+By the **shape of the measurement set**, never by its units, and the answer is recorded
+on the result as `measurement_type` and `first_value_is_bust` so nothing downstream can
+re-derive it differently.
 
-| Input | Units | Leading number | Type |
-| --- | --- | --- | --- |
-| `90G-60-80`, `88(E)-58-89` | metric | **bust circumference** | `metric_bust` |
-| `32D-28-34`, `D32-28-34` | imperial | **bra band** | `imperial_band` |
-| `36-28-34`, `86/64/89` | either | **bust circumference** | `*_bust` |
-| `32D`, `75E` (no waist/hips) | either | **bra band** | `*_band` |
+| Input | Leading number | Type |
+| --- | --- | --- |
+| `90G-60-80`, `48DDDD-24-37`, `32D-28-34` | **bust circumference** | `*_bust` |
+| `36-28-34`, `86/64/89` | **bust circumference** | `*_bust` |
+| `32D`, `75E` (no waist and hips) | **bra band** | `*_band` |
 
-A cup letter with waist and hips beside it is part of a B-W-H triple; a cup letter on its
-own is a bra size, because there is no triple for it to belong to. Units are decided the
-way the original decided them — values above 50 are centimetres — applied to whichever of
-bust, waist and hips are present.
+A triple is a bust-waist-hips measurement. A number written with a cup letter and nothing
+else is a bra size, which is a band by definition — and that lone form is the only place
+`bust = band + cup difference` survives.
 
-A metric bust gets an **estimated band** (`bust − cup difference`), because breast size
-and the BMI breast-weight correction both need one and a B-W-H triple does not state it.
+Units decide the *conversion* only: values above 50 are centimetres, the same rule the
+original used, applied to whichever of bust, waist and hips are present.
+
+> **What this gives up.** In western performer databases `32D-28-34` really is a bra size,
+> and its true bust is nearer 36 than 32. A triple cannot be read both ways at once, and
+> a first number that is plainly a bust — 44, 48, and a 24-inch waist beside it — is the
+> data that has to work. Such a record now reads a cup size low. If you have both kinds
+> of data, the discriminator would be the waist: a band sits within a few inches of it,
+> a bust does not.
+
+A triple with a cup gets an **estimated band** (`bust − cup difference`), because breast
+size and the BMI breast-weight correction both need one and a triple does not state it.
 It is flagged as estimated and never reported as measured.
 
 ### Accepted spellings
@@ -61,9 +79,9 @@ Cup in brackets or not, before or after the number, any case, spaces anywhere:
 88(E)-58-89   88E-58-89   88 (E) - 58 - 89   88e-58-89   E88-58-89
 ```
 
-all parse to the same measurement. Everything the original read still reads the same:
+all parse to the same measurement. Every format the original read is still read:
 `32D-28-34`, `D32-28-34`, `36-28-34`, `86/64/89`, `32D`, `32D (81D)`, `DDD38-None-None`,
-`NoneNone-23-35`.
+`NoneNone-23-35` — the triples among them now yielding a bust rather than a band.
 
 ## 2. Two tasks instead of one
 
