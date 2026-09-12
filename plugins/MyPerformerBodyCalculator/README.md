@@ -5,8 +5,7 @@ size, cup, height type and BMI.
 
 A fork of **[Performer Body Calculator](https://github.com/stg-annon/StashScripts/tree/main/plugins/performerBodyCalculator)**
 by [@stg-annon](https://github.com/stg-annon) (GPL-3.0, see `LICENSE`). Every category,
-threshold and tag description is his. Two things are different, and they are the reason
-the fork exists.
+threshold and tag description is his. What is different is set out below.
 
 ## 1. A measurements triple is a bust, not a bra band
 
@@ -83,7 +82,42 @@ all parse to the same measurement. Every format the original read is still read:
 `32D-28-34`, `D32-28-34`, `36-28-34`, `86/64/89`, `32D`, `32D (81D)`, `DDD38-None-None`,
 `NoneNone-23-35` — the triples among them now yielding a bust rather than a band.
 
-## 2. Two tasks instead of one
+## 2. The cup tag is the cup that was written
+
+`28FF-24-34` used to be tagged `BreastCup.H`.
+
+Not a miscalculation — a deliberate normalisation. The cup table held one member per
+bust-band difference and listed the alternative spellings of it together:
+
+```python
+H = StashTagDC(threshold=(operator.contains, ['H','FF']))
+```
+
+`match_threshold` returns the first member whose list contains the cup, so `FF` matched
+`H`. FF (UK) and H (US) *are* the same cup — but the tag then disagreed with the
+measurements a reader would check it against.
+
+Every spelling now has a member of its own: `DD`, `DDD`, `DDDD`, `EE`, `FF`, `GG`, `HH`,
+`JJ`, `KK`, `LL` alongside the single letters. A cup written in the measurements is a
+statement, and it reaches the tag unchanged.
+
+### Why the table could not simply be extended
+
+`get_bust_band_difference` read the member's **position** as its difference in inches:
+
+```python
+for difference, cup_enum in enumerate(BreastCup):
+```
+
+So the member list was a tag vocabulary and a numeric scale at once, and inserting `FF`
+would have shifted the difference of every cup after it — moving every affected
+performer's estimated band, breast size and BMI.
+
+The difference is now written on each member instead, and the values are exactly the
+indices the original produced: `DD` is 5 inches like `E`, `FF` is 8 like `H`. Different
+tags, same numbers.
+
+## 3. Two tasks instead of one
 
 | Task | What it does |
 | --- | --- |
@@ -138,7 +172,7 @@ Body Calculator manages are all invisible to it. It is **not** `destroy_managed_
 the tags themselves stay, with their aliases, descriptions and any renaming you have done
 to them. Only the assignments go.
 
-## 3. Recalculating on change
+## 4. Recalculating on change
 
 The two tasks are not the only way tags get written. The plugin also subscribes to
 Stash's performer hooks:

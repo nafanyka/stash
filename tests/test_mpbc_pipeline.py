@@ -286,3 +286,119 @@ class TestTheDiagnosticLogging:
         assert "measurements='45D-25-32'" in output
         assert "read as imperial_bust" in output
         assert "no category covers" in output
+
+
+def cup_tag(performer):
+    """The BreastCup tag the pipeline actually put on the performer, by name."""
+    cups = [str(tag) for tag in performer.tags_list if str(tag).startswith("BreastCup.")]
+    assert len(cups) <= 1, f"more than one cup tag: {cups}"
+    return cups[0].split(".", 1)[1] if cups else None
+
+
+class TestTheCupTagIsTheCupThatWasWritten:
+    """A cup in the measurements is a statement, not an input to a calculation.
+
+    `28FF-24-34` was tagged `BreastCup.H`, because the cup table held one member per
+    bust-band difference and listed the spellings of it together - `H` carried
+    `['H', 'FF']`, and `match_threshold` returns the first member whose list contains
+    the cup. A deliberate normalisation, since FF and H are the same cup in different
+    sizing systems, but the tag then disagreed with the measurements it came from.
+    """
+
+    def test_the_reported_case(self):
+        performer = build("28FF-24-34")
+        assert performer.bust == 28
+        assert performer.cupsize == "FF"
+        assert performer.waist == 24
+        assert performer.hips == 34
+        assert cup_tag(performer) == "FF"
+
+    def test_it_is_no_longer_h(self):
+        assert cup_tag(build("28FF-24-34")) != "H"
+
+    @pytest.mark.parametrize("raw, cup", [
+        ("32DD-24-34", "DD"),
+        ("32DDD-24-34", "DDD"),
+        ("32DDDD-24-34", "DDDD"),
+        ("32E-24-34", "E"),
+        ("32F-24-34", "F"),
+        ("32FF-24-34", "FF"),
+        ("32G-24-34", "G"),
+        ("32H-24-34", "H"),
+        ("32I-24-34", "I"),
+        ("32J-24-34", "J"),
+    ])
+    def test_every_written_cup_becomes_its_own_tag(self, raw, cup):
+        performer = build(raw)
+        assert performer.cupsize == cup, "parsed wrong"
+        assert cup_tag(performer) == cup, "tagged wrong"
+
+    @pytest.mark.parametrize("raw, cup", [
+        ("40J-24-37", "J"),
+        ("44DDD-23-33", "DDD"),
+        ("48DDDD-24-37", "DDDD"),
+        ("90G-60-80", "G"),
+        ("88(E)-58-89", "E"),
+        ("88e-58-89", "E"),
+        ("28ff-24-34", "FF"),
+        ("GG32-24-34", "GG"),
+    ])
+    def test_the_cases_from_the_report(self, raw, cup):
+        assert cup_tag(build(raw)) == cup
+
+    def test_a_cup_is_never_derived_from_the_measurements(self):
+        """The same body, three different written cups, three different tags.
+
+        If the cup were being calculated from bust, band or their difference, these
+        would all come out the same.
+        """
+        assert cup_tag(build("32DD-24-34")) == "DD"
+        assert cup_tag(build("32E-24-34")) == "E"
+        assert cup_tag(build("32F-24-34")) == "F"
+
+
+class TestTheNumbersBehindTheCupDidNotMove:
+    """Splitting the cup table must not move anything that reads it as a number.
+
+    The difference used to be the member's index, so a new member shifted every cup
+    after it - and with it the estimated band, the breast size and the BMI correction.
+    It is now written on the member, and these are the values the old indices gave.
+    """
+
+    @pytest.mark.parametrize("cup, difference", [
+        ("AA", 0), ("A", 1), ("B", 2), ("C", 3), ("D", 4),
+        ("DD", 5), ("E", 5),
+        ("DDD", 6), ("EE", 6), ("F", 6),
+        ("DDDD", 7), ("G", 7),
+        ("FF", 8), ("H", 8),
+        ("I", 9), ("GG", 10), ("J", 10), ("K", 11),
+        ("HH", 12), ("L", 12), ("M", 13),
+        ("JJ", 14), ("N", 14), ("O", 15),
+        ("KK", 16), ("P", 16), ("Q", 17),
+        ("LL", 18), ("R", 18),
+    ])
+    def test_the_difference_each_cup_implies(self, cup, difference):
+        assert body_tags.get_bust_band_difference(cup) == difference
+
+    def test_equivalent_spellings_still_agree_on_the_number(self):
+        # FF and H are the same cup written two ways: different tags, same inches.
+        assert (body_tags.get_bust_band_difference("FF")
+                == body_tags.get_bust_band_difference("H"))
+        assert (body_tags.get_bust_band_difference("DD")
+                == body_tags.get_bust_band_difference("E"))
+
+    def test_the_estimated_band_is_unchanged(self):
+        # 28FF: band = bust - 8, as it was when FF resolved to H.
+        assert build("28FF-24-34").band == 20
+        assert build("28H-24-34").band == 20
+
+    def test_breast_size_is_unchanged_for_equivalent_spellings(self):
+        def sizes(raw):
+            return [str(t) for t in build(raw).tags_list if str(t).startswith("BreastSize.")]
+
+        assert sizes("28FF-24-34") == sizes("28H-24-34")
+        assert sizes("32DD-24-34") == sizes("32E-24-34")
+
+    def test_an_unknown_cup_still_says_so(self):
+        with pytest.raises(Exception, match="could not identify cupsize"):
+            body_tags.get_bust_band_difference("ZZZ")

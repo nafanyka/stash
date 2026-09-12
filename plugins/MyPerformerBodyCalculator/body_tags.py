@@ -32,6 +32,9 @@ class StashTagDC:
     description: str = ""
     aliases: list[str] = field(default_factory=list)
     image: str = None
+    # For a cup: the bust-band difference in inches. Stated rather than inferred from
+    # the member's position, which is how it used to be read - see `BreastCup`.
+    difference: int = None
 
     def tag_create_input(self, tag_name, alias_id):
         create_input = {"name": tag_name}
@@ -103,25 +106,58 @@ class HipSize(StashTagEnumComparable):
     SLIM = StashTagDC(threshold=(operator.ge, 0.8))
 
 class BreastCup(StashTagEnumComparable):
-    AA = StashTagDC(threshold=(operator.contains, ['AA']))
-    A  = StashTagDC(threshold=(operator.contains, ['A']))
-    B  = StashTagDC(threshold=(operator.contains, ['B']))
-    C  = StashTagDC(threshold=(operator.contains, ['C']))
-    D  = StashTagDC(threshold=(operator.contains, ['D']))
-    E  = StashTagDC(threshold=(operator.contains, ['E','DD']))
-    F  = StashTagDC(threshold=(operator.contains, ['F','DDD','EE']))
-    G  = StashTagDC(threshold=(operator.contains, ['G','DDDD']))
-    H  = StashTagDC(threshold=(operator.contains, ['H','FF']))
-    I  = StashTagDC(threshold=(operator.contains, ['I']))
-    J  = StashTagDC(threshold=(operator.contains, ['J','GG']))
-    K  = StashTagDC(threshold=(operator.contains, ['K']))
-    L  = StashTagDC(threshold=(operator.contains, ['L','HH']))
-    M  = StashTagDC(threshold=(operator.contains, ['M']))
-    N  = StashTagDC(threshold=(operator.contains, ['N','JJ']))
-    O  = StashTagDC(threshold=(operator.contains, ['O']))
-    P  = StashTagDC(threshold=(operator.contains, ['P','KK']))
-    Q  = StashTagDC(threshold=(operator.contains, ['Q']))
-    R  = StashTagDC(threshold=(operator.contains, ['R','LL']))
+    """One member per cup size *as it is written*, with its bust-band difference.
+
+    Changed from the original, which held one member per difference and listed the
+    alternative spellings of it together:
+
+        H = StashTagDC(threshold=(operator.contains, ['H','FF']))
+
+    `match_threshold` returns the first member whose list contains the cup, so a
+    performer measured `28FF-24-34` was tagged `BreastCup.H`. Not a miscalculation - a
+    deliberate normalisation, since FF (UK) and H (US) are the same cup - but the tag
+    then disagreed with what the performer's own measurements say, which is the thing a
+    reader checks it against.
+
+    The spellings now have members of their own, and the difference each one implies is
+    written down rather than inferred from the member's position in the list. That
+    coupling is what made the old table impossible to extend: `get_bust_band_difference`
+    read the *index* as inches, so giving FF its own member would have shifted the
+    difference of every cup after it, and with it every performer's breast size and BMI.
+
+    The differences below are exactly the indices the original produced, so nothing that
+    depends on them moves: `DD` is still 5 inches like `E`, `FF` still 8 like `H`.
+    """
+
+    AA   = StashTagDC(threshold=(operator.contains, ['AA']), difference=0)
+    A    = StashTagDC(threshold=(operator.contains, ['A']), difference=1)
+    B    = StashTagDC(threshold=(operator.contains, ['B']), difference=2)
+    C    = StashTagDC(threshold=(operator.contains, ['C']), difference=3)
+    D    = StashTagDC(threshold=(operator.contains, ['D']), difference=4)
+    DD   = StashTagDC(threshold=(operator.contains, ['DD']), difference=5)
+    E    = StashTagDC(threshold=(operator.contains, ['E']), difference=5)
+    DDD  = StashTagDC(threshold=(operator.contains, ['DDD']), difference=6)
+    EE   = StashTagDC(threshold=(operator.contains, ['EE']), difference=6)
+    F    = StashTagDC(threshold=(operator.contains, ['F']), difference=6)
+    DDDD = StashTagDC(threshold=(operator.contains, ['DDDD']), difference=7)
+    G    = StashTagDC(threshold=(operator.contains, ['G']), difference=7)
+    FF   = StashTagDC(threshold=(operator.contains, ['FF']), difference=8)
+    H    = StashTagDC(threshold=(operator.contains, ['H']), difference=8)
+    I    = StashTagDC(threshold=(operator.contains, ['I']), difference=9)
+    GG   = StashTagDC(threshold=(operator.contains, ['GG']), difference=10)
+    J    = StashTagDC(threshold=(operator.contains, ['J']), difference=10)
+    K    = StashTagDC(threshold=(operator.contains, ['K']), difference=11)
+    HH   = StashTagDC(threshold=(operator.contains, ['HH']), difference=12)
+    L    = StashTagDC(threshold=(operator.contains, ['L']), difference=12)
+    M    = StashTagDC(threshold=(operator.contains, ['M']), difference=13)
+    JJ   = StashTagDC(threshold=(operator.contains, ['JJ']), difference=14)
+    N    = StashTagDC(threshold=(operator.contains, ['N']), difference=14)
+    O    = StashTagDC(threshold=(operator.contains, ['O']), difference=15)
+    KK   = StashTagDC(threshold=(operator.contains, ['KK']), difference=16)
+    P    = StashTagDC(threshold=(operator.contains, ['P']), difference=16)
+    Q    = StashTagDC(threshold=(operator.contains, ['Q']), difference=17)
+    LL   = StashTagDC(threshold=(operator.contains, ['LL']), difference=18)
+    R    = StashTagDC(threshold=(operator.contains, ['R']), difference=18)
 
 # shape determined from calculate_shape()
 class BodyShape(StashTagEnum):
@@ -367,9 +403,16 @@ def shape_diagnostics(bust, waist, hips):
 # "cup size approximates the difference between the Over-the-bust and band measurements in inches"
 # index == bust band difference in inches
 def get_bust_band_difference(cupsize):
-    for difference, cup_enum in enumerate(BreastCup):
+    """The bust-band difference a cup implies, in inches.
+
+    Read off the member rather than counted from its position. The original used
+    `enumerate(BreastCup)`, which made the member list double as a numeric scale and a
+    tag vocabulary at once - so the two could not be changed independently, and adding a
+    cup size moved every performer's breast size.
+    """
+    for cup_enum in BreastCup:
         if cup_enum.within_threshold(cupsize):
-            return difference    
+            return cup_enum.value.difference
     raise Exception(f"could not identify cupsize '{cupsize}' add to 'BreastCup' enum")
 
 # Approximates breasts weight in kg, derived from this chart https://i.imgur.com/QZBhze8.png

@@ -373,6 +373,43 @@ class TestImperialBustWithACup:
 
     def test_the_cup_is_still_recorded(self):
         # It is not used to move the bust, but it is still the performer's cup size and
-        # still becomes a BreastCup tag.
+        # still becomes a BreastCup tag - the one it is written as. This used to fold
+        # into `BreastCup.G`, which is the same cup in US sizing but not what the
+        # performer's measurements say.
         assert measurements.parse("48DDDD-24-37").cup == "DDDD"
-        assert body_tags.BreastCup.match_threshold("DDDD") is body_tags.BreastCup.G
+        assert body_tags.BreastCup.match_threshold("DDDD") is body_tags.BreastCup.DDDD
+        # and still worth the same seven inches it always was
+        assert body_tags.get_bust_band_difference("DDDD") == 7
+
+
+class TestTheCupVocabulary:
+    """Rules the cup table has to keep, whoever edits it next."""
+
+    def test_no_spelling_belongs_to_two_cups(self):
+        seen = {}
+        for cup in body_tags.BreastCup:
+            for spelling in cup.value.threshold[1]:
+                assert spelling not in seen, (
+                    f"{spelling!r} is claimed by both {seen.get(spelling)} and {cup.name}")
+                seen[spelling] = cup.name
+
+    def test_every_cup_answers_to_its_own_name(self):
+        for cup in body_tags.BreastCup:
+            assert body_tags.BreastCup.match_threshold(cup.name) is cup
+
+    def test_every_cup_states_its_difference(self):
+        for cup in body_tags.BreastCup:
+            assert cup.value.difference is not None, cup.name
+            assert isinstance(cup.value.difference, int)
+
+    def test_the_differences_never_go_backwards(self):
+        # Declaration order is still the size order, which is what makes a cup table
+        # readable and what the comparable enum's ordering means.
+        differences = [cup.value.difference for cup in body_tags.BreastCup]
+        assert differences == sorted(differences)
+
+    def test_the_spellings_this_library_actually_contains(self):
+        # Everything seen in the reported measurements, plus the UK doubles.
+        for spelling in ["DD", "DDD", "DDDD", "EE", "FF", "GG", "HH", "JJ", "KK", "LL",
+                         "E", "F", "G", "H", "I", "J", "K", "L"]:
+            assert body_tags.BreastCup.match_threshold(spelling) is not None, spelling
