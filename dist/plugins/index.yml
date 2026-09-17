@@ -21,8 +21,8 @@
       Body Calculator that reads metric bust sizes correctly (90G-60-80 is a 90cm
       bust, not a 90cm band) and splits the run in two: Add New calculates only performers
       it has not seen before, Full Update rebuilds the library.'
-  version: 1.3.0-94bc585
-  date: '2026-09-12 12:11:07'
+  version: 1.3.0-cc35e73
+  date: '2026-09-12 12:53:26'
   path: MyPerformerBodyCalculator.zip
   sha256: c7f1d1ed150fecc1b470101557cc5e30a220b6eb20036063fdf214398770bed2
   requires: []

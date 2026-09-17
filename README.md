@@ -30,7 +30,13 @@ dist/plugins/index.yml        generated source index — the URL Stash subscribe
 dist/scrapers/index.yml       generated source index
 .github/workflows/publish.yml CI: build zips + indexes, deploy to GitHub Pages
 .github/workflows/build_index.py  the packager, runnable locally
+bin/build.sh                  rebuild dist/ after a change — see bin/README.md
 ```
+
+After editing a plugin or scraper, run **`bin/build.sh`** (from Git Bash on Windows). It
+reports what changed, runs the tests, checks the plugin JavaScript parses, repackages
+`dist/`, and remembers what it built so the next run can tell you what moved. Commit the
+source and `dist/` together.
 
 Three answers to one question — *what does anything know about this scene?* — from
 different directions:

@@ -1,0 +1,37 @@
+{
+  "_comment": "Written by bin/build.sh. What each component looked like when it was last packaged, so the next build can say what moved. Safe to delete - that just means the next build treats everything as new.",
+  "components": {
+    "plugins/FastDiscovery": {
+      "fingerprint": "6e5d54ab43a617c151139b2b05a174c7ce4dd9807f5ad6ce3cf3c150a55188fa",
+      "version": "0.2.9"
+    },
+    "plugins/MyPerformerBodyCalculator": {
+      "fingerprint": "6a4bd01ffb208bcf56b69562371dd3ba69466262147e05e56ed8a2bbc65b2cf1",
+      "version": "1.3.0"
+    },
+    "plugins/PerformerOrganized": {
+      "fingerprint": "334139f73a67f04ea0b854972297fe2ac700573a4cf275e960cf7420ab53a8fe",
+      "version": "1.0.3"
+    },
+    "plugins/ScrapeAllSettings": {
+      "fingerprint": "5922dfafec2cb1d89b445f3389fd0e9514d4be7922b0906f7f93636f466e8f5d",
+      "version": "1.1"
+    },
+    "plugins/ScrapeDiscovery": {
+      "fingerprint": "03c8e7b349c5e453b099931ba4323a07beddf92f7fa8e3a2569146357d8ea451",
+      "version": "0.1.0"
+    },
+    "scrapers/FastDiscovery": {
+      "fingerprint": "cb2164e99a219785000c667bc54e57a65ada6091e28c32413337fd1349c9f74c",
+      "version": "1"
+    },
+    "scrapers/ScrapeAll": {
+      "fingerprint": "28b08dead0fa04214571ac5a07def71ce12b4e049d0efc6b9dbbed2a20243b04",
+      "version": "4"
+    },
+    "scrapers/ScrapeDiscovery": {
+      "fingerprint": "62fa9f5c970284c2b991f460dcd4d357bdd1d5878fc1afb18cbba34182d5569f",
+      "version": "1"
+    }
+  }
+}
