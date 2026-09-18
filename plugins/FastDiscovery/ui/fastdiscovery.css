@@ -567,8 +567,13 @@
   font-weight: normal;
 }
 
-.fd-gallery-item input[type="radio"] {
+.fd-gallery-item input[type="radio"],
+.fd-gallery-item input[type="checkbox"] {
   margin: 0 0 0.3rem;
+}
+
+.fd-gallery-step {
+  margin: 0 0 0.75rem;
 }
 
 .fd-gallery-selected {

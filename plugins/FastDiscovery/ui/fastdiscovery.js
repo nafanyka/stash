@@ -727,19 +727,57 @@
     var row = props.row;
     var chosen = props.chosen;
     var open = React.useState(false);
+    // Two steps: first narrow a long gallery down to a handful of favourites
+    // (checkboxes, nothing committed yet), then pick exactly one of *those*
+    // (radio, committed only on Done). Both reset every time the gallery is
+    // opened, seeded from whatever is chosen right now.
+    var phase = React.useState("shortlist"); // "shortlist" | "pick"
+    var shortlist = React.useState(function () { return new Set(); });
+    var picked = React.useState(null);
     var index = Math.max(0, row.values.findIndex(function (one) { return one.id === chosen; }));
     var current = row.values[index] || row.values[0];
     var columns = {};
     (props.columns || []).forEach(function (column) { columns[column.id] = column; });
 
+    function openGallery() {
+      phase[1]("shortlist");
+      shortlist[1](new Set(chosen ? [chosen] : []));
+      picked[1](chosen || null);
+      open[1](true);
+    }
+
+    function closeGallery() {
+      open[1](false);
+    }
+
+    function toggleShortlist(id) {
+      var next = new Set(shortlist[0]);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      shortlist[1](next);
+    }
+
+    function goToPick() {
+      if (!shortlist[0].size) return;
+      picked[1](shortlist[0].has(chosen) ? chosen : Array.from(shortlist[0])[0]);
+      phase[1]("pick");
+    }
+
+    function commitPick() {
+      if (picked[0]) props.onPick(picked[0]);
+      open[1](false);
+    }
+
     // The gallery groups by source/result, never a flat grid: Source A and every
     // photo it offered, then Source B and its own. A photo two sources both
     // returned (deduplicated by content or URL) appears once in each of their
     // groups - it really was offered by both, and that is provenance, not a bug.
+    // In the "pick" step the same grouping applies, just narrowed to whatever
+    // made the shortlist.
     var groups = (props.columns || [])
       .filter(function (column) { return !column.rejected; })
       .map(function (column) {
         var items = row.values.filter(function (candidate) {
+          if (phase[0] === "pick" && !shortlist[0].has(candidate.id)) return false;
           return candidate.sources.indexOf(column.id) >= 0;
         });
         return { column: column, items: items };
@@ -775,7 +813,7 @@
         h("div", { className: "fd-muted" }, index + 1 + " / " + row.values.length),
         h(
           "button",
-          { className: "btn btn-sm btn-secondary", onClick: function () { open[1](true); } },
+          { className: "btn btn-sm btn-secondary", onClick: openGallery },
           "Open gallery"
         )
       ),
@@ -785,7 +823,7 @@
             {
               show: true,
               size: "lg",
-              onHide: function () { open[1](false); },
+              onHide: closeGallery,
               className: "fd-modal",
               // Choosing a cover means looking at it, so the gallery gets the width.
               dialogClassName: "fd-modal-wide"
@@ -794,6 +832,13 @@
             h(
               Modal.Body,
               null,
+              h(
+                "p",
+                { className: "fd-muted fd-gallery-step" },
+                phase[0] === "shortlist"
+                  ? "Step 1 of 2: tick every photo worth a closer look."
+                  : "Step 2 of 2: pick the one to use."
+              ),
               h(
                 "div",
                 { className: "fd-gallery-groups" },
@@ -809,19 +854,29 @@
                         // The group heading already says the source; a photo shared
                         // with another source is simply in both groups, so no
                         // per-image caption is needed here.
+                        var inShortlist = phase[0] === "shortlist";
                         return h(
                           "label",
                           {
                             key: group.column.id + ":" + candidate.id,
                             className: cx("fd-gallery-item",
-                                         chosen === candidate.id && "fd-gallery-selected")
+                                         (inShortlist
+                                           ? shortlist[0].has(candidate.id)
+                                           : picked[0] === candidate.id)
+                                           && "fd-gallery-selected")
                           },
-                          h("input", {
-                            type: "radio",
-                            name: "fd-image",
-                            checked: chosen === candidate.id,
-                            onChange: function () { props.onPick(candidate.id); }
-                          }),
+                          h("input", inShortlist
+                            ? {
+                                type: "checkbox",
+                                checked: shortlist[0].has(candidate.id),
+                                onChange: function () { toggleShortlist(candidate.id); }
+                              }
+                            : {
+                                type: "radio",
+                                name: "fd-image",
+                                checked: picked[0] === candidate.id,
+                                onChange: function () { picked[1](candidate.id); }
+                              }),
                           h(Thumbnail, { candidate: candidate, size: "gallery",
                                         width: props.thumbWidth })
                         );
@@ -836,9 +891,22 @@
               null,
               h(
                 "button",
-                { className: "btn btn-primary", onClick: function () { open[1](false); } },
-                "Done"
-              )
+                { className: "btn btn-secondary", onClick: closeGallery },
+                "Close"
+              ),
+              phase[0] === "shortlist"
+                ? h(
+                    "button",
+                    { className: "btn btn-primary", onClick: goToPick,
+                      disabled: !shortlist[0].size },
+                    "Select"
+                  )
+                : h(
+                    "button",
+                    { className: "btn btn-primary", onClick: commitPick,
+                      disabled: !picked[0] },
+                    "Done"
+                  )
             )
           )
         : null

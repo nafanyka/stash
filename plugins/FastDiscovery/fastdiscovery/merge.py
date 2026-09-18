@@ -24,7 +24,6 @@ rebuilt at any time and always reflects the current scene.
 from __future__ import annotations
 
 import hashlib
-import re
 
 from . import fields, urls as urls_module
 from .db import repo as R
@@ -85,46 +84,6 @@ def column_id(source_id, ordinal=0):
     return "s%s_%s" % (source_id, ordinal)
 
 
-_COLUMN_ID = re.compile(r"^s(\d+)_\d+$")
-
-
-def _source_id_of(column):
-    match = _COLUMN_ID.match(str(column or ""))
-    return int(match.group(1)) if match else None
-
-
-def descendant_columns(repo, run_id, column):
-    """Every column whose source is downstream of `column`'s source in the discovery
-    graph - the URL a rejected result led to, and every URL and column that led to in
-    turn, recursively.
-
-    A source that answered with the wrong scene/performer is wrong about the URLs it
-    handed onward too (requirement: rejecting a scraper rejects the URL columns it
-    produced) - so this walks `sources.parent_source_id` forward from `column`'s
-    source rather than leave the reviewer to notice and strike out each of them by
-    hand.
-    """
-    root = _source_id_of(column)
-    if root is None:
-        return set()
-    children = {}
-    for source in repo.sources_of(run_id):
-        children.setdefault(source.get("parent_source_id"), []).append(source["id"])
-    stack = list(children.get(root, []))
-    downstream = set()
-    while stack:
-        source_id = stack.pop()
-        if source_id in downstream:
-            continue
-        downstream.add(source_id)
-        stack.extend(children.get(source_id, []))
-    if not downstream:
-        return set()
-    return {column_id(result["source_id"], result["ordinal"])
-            for result in repo.results_of(run_id)
-            if result["source_id"] in downstream}
-
-
 def _build_columns(repo, run, rejected, current_values):
     """The column list and the payload/endpoint maps shared by every kind of row.
 
@@ -160,6 +119,12 @@ def _build_columns(repo, run, rejected, current_values):
             "depth": result["source_depth"],
             "parent": _parent_column(result, by_source, results),
         })
+
+    # Visible columns first, rejected ones pushed to the end - rejecting a column is
+    # meant to get it out of the way, not leave it sitting between two columns still
+    # worth reading. Stable, so within each group the original (depth, source id,
+    # ordinal) order survives untouched.
+    columns.sort(key=lambda column: column["rejected"])
 
     payloads = {CURRENT: current_values}
     endpoints = {CURRENT: None}
@@ -220,6 +185,9 @@ def build(repo, run, scene, schema_fields=None, client=None, rejected=None):
             "depth": result["source_depth"],
             "parent": _parent_column(result, by_source, results),
         })
+
+    # Visible columns first, rejected ones pushed to the end - see `_build_columns`.
+    columns.sort(key=lambda column: column["rejected"])
 
     payloads = {CURRENT: snapshot["values"]}
     endpoints = {CURRENT: None}
