@@ -222,6 +222,26 @@
     return out.join(" ");
   }
 
+  // A "Current" image/screenshot URL is built server-side, by FastDiscovery's own
+  // Python process asking Stash's GraphQL for it - and that process always reaches
+  // Stash over the address Stash's own plugin connection details gave it (typically
+  // localhost), never over whatever address *this browser* used to load the page.
+  // Stash's resolver bakes the host it was asked over into the absolute URL it
+  // returns, so a browser reaching Stash over a LAN IP or a different hostname gets
+  // back an unreachable http://localhost:.../performer/<id>/image - correct path,
+  // wrong host, silently pointed at whatever is listening on that port on the
+  // viewer's own machine instead of the server's. Rewriting to this page's own
+  // origin, which the browser got right by definition, is the fix.
+  function sameOriginUrl(raw) {
+    if (!raw) return raw;
+    try {
+      var parsed = new URL(raw, window.location.href);
+      return window.location.origin + parsed.pathname + parsed.search + parsed.hash;
+    } catch (err) {
+      return raw;
+    }
+  }
+
   function safeHref(url) {
     var text = String(url || "").trim();
     return /^https?:\/\//i.test(text) ? text : null;
@@ -671,7 +691,13 @@
 
   function Thumbnail(props) {
     var candidate = props.candidate;
-    var loaded = React.useState(candidate.kind === "blob" ? null : candidate.url);
+    // "scene" marks the Current column's own photo/screenshot - a Stash URL this
+    // plugin's backend built from its own vantage point, not necessarily this
+    // browser's (see `sameOriginUrl`). A scraped result's URL ("url"/"blob") is
+    // untouched: that host really is the scraper's site, not Stash.
+    var initialSrc = candidate.kind === "scene" ? sameOriginUrl(candidate.url)
+      : candidate.url;
+    var loaded = React.useState(candidate.kind === "blob" ? null : initialSrc);
     var failed = React.useState(false);
 
     React.useEffect(

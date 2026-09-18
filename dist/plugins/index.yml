@@ -10,10 +10,10 @@
       the moment you decide. Also does the same for performers: every performer-name
       scraper you pick (Fast), or every installed one (Full), each result kept as
       its own column, URLs followed the same way, reviewed the same way.'
-  version: 0.4.3-bb1002f
+  version: 0.4.4-bb1002f
   date: '2026-09-18 16:37:49'
   path: FastDiscovery.zip
-  sha256: 2f43f50ccf91f92d85ee9ab48208ef3b0b40f973fc37af96c6197407282fe39f
+  sha256: f99eccb2ed1a130714f9799191c8fe2308a9612373e9bf026cbe8e73eaa1042a
   requires: []
 - id: MyPerformerBodyCalculator
   name: My Performer Body Calculator
@@ -32,8 +32,8 @@
   name: Path VR Tagger
   metadata:
     description: Automatically tags scenes as VR or NonVR based on file path.
-  version: 1.0.0-0000000
-  date: '1970-01-01 00:00:00'
+  version: 1.0.0-b6dfdca
+  date: '2026-09-18 17:19:41'
   path: path_vr_tagger.zip
   sha256: 4b60b2801c6504dc0a1f54b997649ac84b9aee6d28d2f4b401526ee21092fa5b
   requires: []
@@ -41,8 +41,8 @@
   name: Performer URL Cleanup
   metadata:
     description: Normalises, deduplicates, and sorts performer URLs
-  version: 1.0.0-0000000
-  date: '1970-01-01 00:00:00'
+  version: 1.0.0-b6dfdca
+  date: '2026-09-18 17:19:41'
   path: performer-url-cleanup.zip
   sha256: fedf71885f0cf66b0557d67a7af6d548ca5d459622f785aed70bdb1edd3d25cc
   requires: []
@@ -63,8 +63,8 @@
   name: StashDB Tag Synchroniser
   metadata:
     description: Synchronises tags from StashDB to your local Stash instance via GraphQL
-  version: 1.0.4-0000000
-  date: '1970-01-01 00:00:00'
+  version: 1.0.4-b6dfdca
+  date: '2026-09-18 17:19:41'
   path: stashdb-tag-sync.zip
   sha256: 7719eec86b311057d5d1d07251f759af4e5621bd93cf8f936056a1cba7d0f134
   requires: []

@@ -5,8 +5,8 @@
   metadata:
     description: Performer scraper for babepedia.com. Originally from CommunityScrapers;
       kept and maintained here after it stopped being updated upstream.
-  version: 1-0000000
-  date: '1970-01-01 00:00:00'
+  version: 1-b6dfdca
+  date: '2026-09-18 17:19:41'
   path: Babepedia.zip
   sha256: 206e8cc1d6dbe1bfd4cc76597046b405d62b086f18fe9bf9a41c72147f8a440f
   requires: []
@@ -16,8 +16,8 @@
     description: Entry point into the FastDiscovery plugin. Starts a run for the scene
       and always returns nothing, because FastDiscovery is reviewed before anything
       is written. Requires the FastDiscovery plugin.
-  version: 1-5099199
-  date: '2026-08-28 11:39:20'
+  version: 1-b6dfdca
+  date: '2026-09-18 17:19:41'
   path: FastDiscovery.zip
   sha256: dcb73b1e1d1888d2f941a1f2416fba9feeae68d444bad328e0a773b3d63da4be
   requires: []
@@ -27,8 +27,8 @@
     description: Performer/scene/movie scraper for iafd.com. Originally from CommunityScrapers;
       kept and maintained here after it stopped being updated upstream. Needs py_common
       installed separately - see this scraper's README.
-  version: 1-0000000
-  date: '1970-01-01 00:00:00'
+  version: 1-b6dfdca
+  date: '2026-09-18 17:19:41'
   path: IAFD.zip
   sha256: 9a3ce5403a746a218ced75c7419660cf315c10bb9a697109d4bdd6b1c8a44c8c
   requires: []
