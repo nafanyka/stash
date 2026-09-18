@@ -438,22 +438,7 @@
 
 .fd-image-picker {
   display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
   align-items: center;
-}
-
-.fd-image-strip {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.fd-image-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.85rem;
 }
 
 .fd-thumb {

@@ -760,10 +760,6 @@
     var phase = React.useState("shortlist"); // "shortlist" | "pick"
     var shortlist = React.useState(function () { return new Set(); });
     var picked = React.useState(null);
-    var index = Math.max(0, row.values.findIndex(function (one) { return one.id === chosen; }));
-    var current = row.values[index] || row.values[0];
-    var columns = {};
-    (props.columns || []).forEach(function (column) { columns[column.id] = column; });
 
     function openGallery() {
       phase[1]("shortlist");
@@ -810,38 +806,13 @@
       })
       .filter(function (group) { return group.items.length; });
 
-    function step(delta) {
-      var next = (index + delta + row.values.length) % row.values.length;
-      props.onPick(row.values[next].id);
-    }
-
     return h(
       "div",
       { className: "fd-image-picker" },
       h(
-        "div",
-        { className: "fd-image-strip" },
-        h("button", { className: "btn btn-sm btn-secondary", onClick: function () { step(-1); } }, "‹"),
-        current ? h(Thumbnail, { candidate: current, width: props.thumbWidth }) : null,
-        h("button", { className: "btn btn-sm btn-secondary", onClick: function () { step(1); } }, "›")
-      ),
-      h(
-        "div",
-        { className: "fd-image-meta" },
-        h(
-          "div",
-          null,
-          "Source: ",
-          (current ? current.sources : [])
-            .map(function (id) { return (columns[id] || {}).name || id; })
-            .join(" · ")
-        ),
-        h("div", { className: "fd-muted" }, index + 1 + " / " + row.values.length),
-        h(
-          "button",
-          { className: "btn btn-sm btn-secondary", onClick: openGallery },
-          "Open gallery"
-        )
+        "button",
+        { className: "btn btn-sm btn-secondary", onClick: openGallery },
+        "Open gallery"
       ),
       open[0]
         ? h(
@@ -988,7 +959,7 @@
                   : column.endpoint
                   ? h("div", { className: "fd-th-sub" }, shortUrl(column.endpoint))
                   : null,
-                previewRow && column.id !== "current" && previewById[previewRow.cells[column.id]]
+                previewRow && previewById[previewRow.cells[column.id]]
                   ? h(Thumbnail, {
                       candidate: previewById[previewRow.cells[column.id]],
                       size: "header",
