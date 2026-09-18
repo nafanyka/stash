@@ -726,6 +726,20 @@
     var columns = {};
     (props.columns || []).forEach(function (column) { columns[column.id] = column; });
 
+    // The gallery groups by source/result, never a flat grid: Source A and every
+    // photo it offered, then Source B and its own. A photo two sources both
+    // returned (deduplicated by content or URL) appears once in each of their
+    // groups - it really was offered by both, and that is provenance, not a bug.
+    var groups = (props.columns || [])
+      .filter(function (column) { return !column.rejected; })
+      .map(function (column) {
+        var items = row.values.filter(function (candidate) {
+          return candidate.sources.indexOf(column.id) >= 0;
+        });
+        return { column: column, items: items };
+      })
+      .filter(function (group) { return group.items.length; });
+
     function step(delta) {
       var next = (index + delta + row.values.length) % row.values.length;
       props.onPick(row.values[next].id);
@@ -770,33 +784,54 @@
               // Choosing a cover means looking at it, so the gallery gets the width.
               dialogClassName: "fd-modal-wide"
             },
-            h(Modal.Header, null, h(Modal.Title, null, "Select scene image")),
+            h(Modal.Header, null, h(Modal.Title, null, props.title || "Select image")),
             h(
               Modal.Body,
               null,
               h(
                 "div",
-                { className: "fd-gallery" },
-                row.values.map(function (candidate) {
+                { className: "fd-gallery-groups" },
+                groups.map(function (group) {
                   return h(
-                    "label",
-                    {
-                      key: candidate.id,
-                      className: cx("fd-gallery-item", chosen === candidate.id && "fd-gallery-selected")
-                    },
-                    h("input", {
-                      type: "radio",
-                      name: "fd-image",
-                      checked: chosen === candidate.id,
-                      onChange: function () { props.onPick(candidate.id); }
-                    }),
-                    h(Thumbnail, { candidate: candidate, size: "gallery", width: props.thumbWidth }),
+                    "div",
+                    { key: group.column.id, className: "fd-gallery-group" },
+                    h("div", { className: "fd-gallery-group-label" }, group.column.name),
                     h(
-                      "span",
-                      { className: "fd-gallery-label" },
-                      candidate.sources
-                        .map(function (id) { return (columns[id] || {}).name || id; })
-                        .join(" · ")
+                      "div",
+                      { className: "fd-gallery" },
+                      group.items.map(function (candidate) {
+                        // A photo shared with another source still names every one of
+                        // them - the group heading says which source this section is
+                        // about, the caption says everything else that also offered it.
+                        var others = candidate.sources.filter(function (id) {
+                          return id !== group.column.id;
+                        });
+                        return h(
+                          "label",
+                          {
+                            key: group.column.id + ":" + candidate.id,
+                            className: cx("fd-gallery-item",
+                                         chosen === candidate.id && "fd-gallery-selected")
+                          },
+                          h("input", {
+                            type: "radio",
+                            name: "fd-image",
+                            checked: chosen === candidate.id,
+                            onChange: function () { props.onPick(candidate.id); }
+                          }),
+                          h(Thumbnail, { candidate: candidate, size: "gallery",
+                                        width: props.thumbWidth }),
+                          others.length
+                            ? h(
+                                "span",
+                                { className: "fd-gallery-label" },
+                                "also: " + others
+                                  .map(function (id) { return (columns[id] || {}).name || id; })
+                                  .join(" · ")
+                              )
+                            : null
+                        );
+                      })
                     )
                   );
                 })
@@ -981,6 +1016,8 @@
                           row: row,
                           chosen: chosen,
                           columns: review.columns,
+                          title: "Select " + row.label.toLowerCase(),
+                          thumbWidth: props.thumbWidth,
                           onPick: function (id) { props.onPick(row.field, id); }
                         })
                       : h(ListEditor, {
@@ -1662,11 +1699,13 @@
   /* ------------------------------------------------------------- settings page */
 
   function PerformerScraperMultiSelect(props) {
-    // Never a hardcoded list (requirement 23): built from the performer scrapers
-    // Stash actually has installed right now, fetched fresh every time this page
-    // loads. A previously-picked id that has since been removed still shows in the
-    // saved value until unticked, but is otherwise silently ignored at run time
-    // (performer_discovery.PerformerRunner.fast_scraper_ids), so a stale pick here
+    // Never a hardcoded list (requirement 23): built from the performer-name
+    // scrapers Stash has installed *and* the stash-boxes it has configured, both
+    // fetched fresh every time this page loads (`performer.scrapers`, which reads
+    // `listScrapers` and `configuration.general.stashBoxes` live). A previously
+    // picked id that has since disappeared still shows in the saved value until
+    // unticked, but is otherwise silently ignored at run time
+    // (performer_discovery.PerformerRunner.fast_choices), so a stale pick here
     // cannot fail a run.
     var available = useOp("performer.scrapers", {});
     var picked = [];
@@ -1685,8 +1724,9 @@
     var scrapers = (available.data && available.data.scrapers) || [];
     if (!scrapers.length) {
       return h("div", { className: "fd-muted" },
-                "No performer-name scrapers are installed. Install one under Settings -> " +
-                  "Metadata Providers, then come back here.");
+                "No performer-name scrapers or stash-boxes are available. Install a " +
+                  "performer scraper, or add a stash-box, under Settings -> Metadata " +
+                  "Providers, then come back here.");
     }
     return h(
       "div",
@@ -1697,7 +1737,10 @@
           "label",
           { key: entry.id, className: cx("fd-pick", on && "fd-pick-on") },
           h("input", { type: "checkbox", checked: on, onChange: function () { toggle(entry.id); } }),
-          h("span", null, entry.name)
+          h("span", null, entry.name),
+          entry.kind === "stashbox"
+            ? h("span", { className: "fd-muted" }, " (stash-box)")
+            : null
         );
       })
     );

@@ -216,7 +216,7 @@ def graphql_source(source):
     method = source["method"]
     if method in (M_STASHBOX_FP, M_STASHBOX_QUERY):
         return {"stash_box_endpoint": source["endpoint"]}
-    if method == M_URL_FRAGMENT:
+    if method in (M_URL_FRAGMENT, M_PERFORMER_NAME):
         return {"scraper_id": source["scraper_id"]}
     return None
 
@@ -252,7 +252,10 @@ def performer_graphql_input(source):
     method = source["method"]
     if method == M_URL_FRAGMENT:
         return {"performer_input": {"urls": [source["url"]]}}
-    if method == M_PERFORMER_NAME:
+    if method in (M_PERFORMER_NAME, M_STASHBOX_QUERY):
+        # A stash-box performer query and a scraper_id name search take the exact
+        # same shape here - `{"query": name}` - they only differ in which
+        # `ScraperSourceInput` field `graphql_source` points them at.
         return {"query": str(source.get("target") or "")}
     raise ValueError("no performer scrape input for method %r" % method)
 
@@ -273,5 +276,43 @@ def performer_name_sources(registry, scraper_ids, name):
             continue
         out.append({"type": "performer_name", "method": M_PERFORMER_NAME,
                     "scraper_id": scraper_id, "name": entry["name"],
+                    "target": str(name or ""), "attribution": CERTAIN, "depth": 0})
+    return out
+
+
+# A stash-box, in a Fast/Full performer scraper list, is written as this prefix plus
+# its endpoint - never its own array or its own setting, because the whole reason a
+# scraper _id_ is a plain string is that a stash-box endpoint is already a string
+# Stash hands back from `configuration.general.stashBoxes`, so one list, one shape,
+# serves both without a second kind of setting to keep in sync (requirement 1: pick
+# from Babepedia, IAFD, StashDB, ThePornDB... in one multi-select).
+STASHBOX_PREFIX = "stashbox:"
+
+
+def is_stashbox_choice(choice):
+    return str(choice or "").startswith(STASHBOX_PREFIX)
+
+
+def stashbox_endpoint_of(choice):
+    return str(choice)[len(STASHBOX_PREFIX):]
+
+
+def performer_stashbox_sources(stash_boxes, endpoints, name):
+    """One source per chosen stash-box, queried by the performer's name.
+
+    Exactly `scrapeSinglePerformer(source: {stash_box_endpoint}, input: {query})` -
+    the same operation `ScrapeMultiPerformers`/the tagger use, just one performer at
+    a time. A stash-box no longer configured in Stash since it was picked is skipped
+    silently, the same way a removed scraper is (requirement 23).
+    """
+    by_endpoint = {box["endpoint"]: box for box in (stash_boxes or [])
+                  if box.get("endpoint")}
+    out = []
+    for endpoint in endpoints:
+        box = by_endpoint.get(endpoint)
+        if box is None:
+            continue
+        out.append({"type": "performer_name", "method": M_STASHBOX_QUERY,
+                    "endpoint": endpoint, "name": box.get("name") or endpoint,
                     "target": str(name or ""), "attribution": CERTAIN, "depth": 0})
     return out

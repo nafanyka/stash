@@ -76,32 +76,62 @@ class PerformerRunner:
             self._schema = stash.PerformerSchema.load(self.client, self.repo)
         return self._schema.selection
 
-    def fast_scraper_ids(self):
-        """The scraper ids the settings page's multi-select picked, filtered to what
-        is actually installed right now (requirement 23: a removed scraper drops out
-        silently rather than failing the run)."""
+    def fast_choices(self):
+        """The performer-name scrapers *and* stash-boxes the settings page's
+        multi-select picked, filtered to what is actually installed/configured right
+        now (requirement 23: a removed scraper or a deleted stash-box drops out
+        silently rather than failing the run). A stash-box is written
+        `stashbox:<endpoint>` in the setting - see `registry.STASHBOX_PREFIX` - so one
+        list, one setting, serves both (requirement 1: pick from Babepedia, IAFD,
+        StashDB, ThePornDB... together)."""
         import json
         try:
             wanted = json.loads(self.config["performerFastScrapers"] or "[]")
         except ValueError:
             wanted = []
         installed = {entry["id"] for entry in self.registry().scrapers}
-        return [one for one in wanted if one in installed]
+        configured = {box["endpoint"] for box in self.client.stash_boxes()
+                     if box.get("endpoint")}
+        out = []
+        for choice in wanted:
+            if registry_module.is_stashbox_choice(choice):
+                if registry_module.stashbox_endpoint_of(choice) in configured:
+                    out.append(choice)
+            elif choice in installed:
+                out.append(choice)
+        return out
+
+    def _split_choices(self, choices):
+        """(scraper_ids, stashbox_endpoints) from a list of Fast/Full choices."""
+        scraper_ids, endpoints = [], []
+        for choice in choices:
+            if registry_module.is_stashbox_choice(choice):
+                endpoints.append(registry_module.stashbox_endpoint_of(choice))
+            else:
+                scraper_ids.append(choice)
+        return scraper_ids, endpoints
+
+    def _name_sources(self, registry, scraper_ids, endpoints, name):
+        return (registry_module.performer_name_sources(registry, scraper_ids, name)
+                + registry_module.performer_stashbox_sources(
+                    self.client.stash_boxes(), endpoints, name))
 
     # -- the run ---------------------------------------------------------
 
     def run_fast(self, performer_id, trigger="manual", job_id=None, replace=True,
                 progress_hook=None):
-        """Start (or replace) a Fast run: every scraper the settings page picked."""
-        scraper_ids = self.fast_scraper_ids()
-        if not scraper_ids:
+        """Start (or replace) a Fast run: every scraper/stash-box the settings page
+        picked."""
+        choices = self.fast_choices()
+        if not choices:
             logs.warning("performer %s: no Fast performer scrapers are configured - "
                         "pick some on the FastDiscovery settings page" % performer_id)
-        return self._start(performer_id, scraper_ids, "FAST", trigger, job_id, replace,
+        return self._start(performer_id, choices, "FAST", trigger, job_id, replace,
                            progress_hook)
 
     def run_full(self, run_id, progress_hook=None):
-        """Top up an existing run with every installed scraper Fast did not use."""
+        """Top up an existing run with every installed scraper/stash-box Fast did
+        not use."""
         run = self.repo.run(run_id)
         if not run or run["entity_type"] != ENTITY_TYPE:
             raise ValueError("no such performer run")
@@ -111,10 +141,17 @@ class PerformerRunner:
             raise PerformerMissing("performer %s does not exist" % performer_id)
 
         registry = self.registry()
-        attempted = {source["scraper_id"] for source in self.repo.sources_of(run_id)
-                    if source["type"] == "performer_name" and source.get("scraper_id")}
-        remaining = [entry["id"] for entry in registry.scrapers
-                    if entry["id"] not in attempted]
+        existing = self.repo.sources_of(run_id)
+        attempted_scrapers = {source["scraper_id"] for source in existing
+                              if source["method"] == registry_module.M_PERFORMER_NAME
+                              and source.get("scraper_id")}
+        attempted_boxes = {source["endpoint"] for source in existing
+                          if source["method"] == registry_module.M_STASHBOX_QUERY
+                          and source.get("endpoint")}
+        remaining_scrapers = [entry["id"] for entry in registry.scrapers
+                              if entry["id"] not in attempted_scrapers]
+        remaining_boxes = [box["endpoint"] for box in self.client.stash_boxes()
+                          if box.get("endpoint") and box["endpoint"] not in attempted_boxes]
 
         # Visibly RUNNING for as long as Full takes, exactly like a fresh run - the
         # Results page and the review's own polling both key off this rather than a
@@ -131,12 +168,14 @@ class PerformerRunner:
         state.results = int(run.get("result_count") or 0)
         state.max_depth = int(run.get("max_depth_reached") or 0)
 
-        logs.info("performer %s: run %s going to Full - %d scraper(s) left to try"
-                  % (performer_id, run_id, len(remaining)))
+        logs.info("performer %s: run %s going to Full - %d scraper(s) and %d "
+                  "stash-box(es) left to try"
+                  % (performer_id, run_id, len(remaining_scrapers), len(remaining_boxes)))
         try:
-            if remaining:
-                self._run_name_wave(state, registry, remaining, snapshot["search_term"],
-                                   progress_hook)
+            sources = self._name_sources(registry, remaining_scrapers, remaining_boxes,
+                                         snapshot["search_term"])
+            if sources:
+                self._run_wave(state, sources, registry, progress_hook)
             self._expand_urls(state, registry, progress_hook)
             # Absolute counts, covering Fast's sources too - not just what this Full
             # pass added - so a Fast-only error is not forgotten once Full succeeds.
@@ -168,13 +207,14 @@ class PerformerRunner:
             raise
         return state.summary(status)
 
-    def _start(self, performer_id, scraper_ids, mode, trigger, job_id, replace,
+    def _start(self, performer_id, choices, mode, trigger, job_id, replace,
               progress_hook):
         performer_id = int(performer_id)
         performer = self.client.find_performer(performer_id)
         if not performer:
             raise PerformerMissing("performer %s does not exist" % performer_id)
         snapshot = fields.performer_snapshot(performer)
+        scraper_ids, endpoints = self._split_choices(choices)
 
         if replace:
             for status in (list(R.REVIEWABLE) + [R.NO_RESULTS, R.RUNNING, R.FAILED]):
@@ -191,9 +231,9 @@ class PerformerRunner:
         state = _State(run_id, performer_id, snapshot)
         registry = self.registry()
 
-        logs.info("performer %s: run %s started (%s) - %d name scraper(s), %d "
-                  "performer url(s)"
-                  % (performer_id, run_id, mode, len(scraper_ids),
+        logs.info("performer %s: run %s started (%s) - %d scraper(s), %d "
+                  "stash-box(es), %d performer url(s)"
+                  % (performer_id, run_id, mode, len(scraper_ids), len(endpoints),
                      len(snapshot["urls"])))
 
         self.repo.add_terminal_source(
@@ -204,9 +244,10 @@ class PerformerRunner:
 
         try:
             self._seed_urls(state, registry)
-            if scraper_ids:
-                self._run_name_wave(state, registry, scraper_ids,
-                                   snapshot["search_term"], progress_hook)
+            sources = self._name_sources(registry, scraper_ids, endpoints,
+                                         snapshot["search_term"])
+            if sources:
+                self._run_wave(state, sources, registry, progress_hook)
             self._expand_urls(state, registry, progress_hook)
             status = self._final_status(state)
             self._finish(run_id, state, status)
@@ -329,10 +370,6 @@ class PerformerRunner:
 
     # -- one wave of sources ------------------------------------------------
 
-    def _run_name_wave(self, state, registry, scraper_ids, name, progress_hook):
-        sources = registry_module.performer_name_sources(registry, scraper_ids, name)
-        self._run_wave(state, sources, registry, progress_hook)
-
     def _run_wave(self, state, sources, registry, progress_hook):
         if not sources:
             return
@@ -378,15 +415,18 @@ class PerformerRunner:
         self.repo.heartbeat(state.run_id, state.progress())
 
     def _invoke(self, source, selection):
-        """The network call for one source. Runs on a worker thread: no database."""
+        """The network call for one source. Runs on a worker thread: no database.
+
+        `M_URL` is the one method with no `ScraperSourceInput` at all - Stash picks
+        the handler itself (`scrapePerformerURL`). Every other method - a name
+        search against a scraper_id, a name search against a stash-box, or an aimed
+        URL fragment - goes through `scrapeSinglePerformer`, and `graphql_source` /
+        `performer_graphql_input` already know which `{scraper_id}` or
+        `{stash_box_endpoint}` and which input shape each one needs.
+        """
         from . import stash
         timeout = float(self.config["scraperTimeout"])
         try:
-            if source["method"] == registry_module.M_PERFORMER_NAME:
-                return self.client.scrape_single_performer(
-                    {"scraper_id": source["scraper_id"]},
-                    registry_module.performer_graphql_input(source), selection,
-                    timeout=timeout)
             if source["method"] == registry_module.M_URL:
                 return self.client.scrape_performer_url(source["url"], selection,
                                                         timeout=timeout)

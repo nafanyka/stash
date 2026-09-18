@@ -570,6 +570,22 @@
   color: var(--text-muted, #868e96);
 }
 
+/* One section per source/result: its heading, then every photo it offered.
+   A photo two sources both returned appears once in each of their sections
+   (`fd-gallery-label` on the item then says the others). */
+.fd-gallery-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.fd-gallery-group-label {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.25);
+}
+
 /* ------------------------------------------------------------------ runs table */
 
 .fd-runs {

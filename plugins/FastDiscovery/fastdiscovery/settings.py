@@ -91,11 +91,12 @@ def _spec():
             "credentials, and never dumps a full payload."),
         "performerFastScrapers": (
             STRING, "[]",
-            "JSON array of performer-name-scraper ids to run for Fast performer "
-            "discovery. Edited from the FastDiscovery settings page, which offers a "
-            "multi-select built from the performer scrapers Stash actually has "
-            "installed - never a hardcoded list. Full performer discovery runs every "
-            "installed performer-name scraper not in this set."),
+            "JSON array of performer-name-scraper ids and/or stash-boxes "
+            "(stashbox:<endpoint>) to run for Fast performer discovery. Edited from "
+            "the FastDiscovery settings page, which offers a multi-select built from "
+            "the performer scrapers Stash has installed and the stash-boxes it has "
+            "configured - never a hardcoded list. Full performer discovery runs "
+            "every installed scraper and configured stash-box not in this set."),
         "performerMaxUrlDepth": (
             NUMBER, 3,
             "How far to follow URLs discovered from a performer's scraped results. "

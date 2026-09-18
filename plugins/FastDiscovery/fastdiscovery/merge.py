@@ -227,6 +227,40 @@ def _column_name(source, result):
     return name
 
 
+def _label_performer_columns(columns, results):
+    """Rewrite each performer column's name to say *who* it found, not just an ordinal.
+
+    `_column_name` numbers a source's later answers "#2", "#3" - fine for a scene,
+    where the row below already carries the title. A performer review is read column
+    by column before anything else, so the header has to say Babepedia found "Bonnie
+    Alexis", not "Babepedia #2" - the whole point of keeping every result as its own
+    column is being able to tell them apart at a glance (requirement 5).
+    """
+    by_column = {}
+    for result in results:
+        by_column[column_id(result["source_id"], result["ordinal"])] = result
+
+    for column in columns:
+        if column["id"] == CURRENT:
+            continue
+        result = by_column.get(column["id"])
+        if result is None:
+            continue
+        raw = result.get("raw") or {}
+        found = fields.clean(raw.get("name"))
+        if not found:
+            continue
+        base = column["name"]
+        if result["ordinal"]:
+            # `_column_name` appended " #<n>" to exactly this base name.
+            suffix = " #%d" % (result["ordinal"] + 1)
+            if base.endswith(suffix):
+                base = base[:-len(suffix)]
+        disambiguation = fields.clean(raw.get("disambiguation"))
+        column["name"] = "%s — %s%s" % (base, found,
+                                        " (%s)" % disambiguation if disambiguation else "")
+
+
 def _parent_column(result, by_source, results):
     """The column whose result led to this one, for the discovery graph."""
     source = by_source.get(result["source_id"]) or {}
@@ -942,6 +976,7 @@ def build_performer(repo, run, performer, schema_fields=None, client=None,
     columns, payloads, endpoints, sources, results, rejected = _build_columns(
         repo, run, rejected, snapshot["values"])
     images_by_result = repo.images_of_results(run["id"])
+    _label_performer_columns(columns, results)
 
     known = list(fields.PERFORMER_FIELDS) + fields.performer_extra_fields(schema_fields)
     rows = []

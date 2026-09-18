@@ -7,7 +7,7 @@ description: >-
   Also does the same for performers: every performer-name scraper you pick (Fast), or
   every installed one (Full), each result kept as its own column, URLs followed the
   same way, reviewed the same way.
-version: 0.3.1
+version: 0.3.3
 url: https://github.com/nafanyka/stash
 
 exec:
@@ -149,9 +149,10 @@ settings:
   performerFastScrapers:
     displayName: Fast performer scrapers
     description: >-
-      JSON array of performer-name-scraper ids to run for Fast performer discovery.
-      Edit this from the FastDiscovery settings page, which offers a multi-select
-      built from the performer scrapers actually installed - not from here directly.
+      JSON array of performer-name-scraper ids and/or stash-boxes to run for Fast
+      performer discovery. Edit this from the FastDiscovery settings page, which
+      offers a multi-select built from the performer scrapers actually installed and
+      the stash-boxes actually configured - not from here directly.
     type: STRING
   performerMaxUrlDepth:
     displayName: Max performer URL discovery depth

@@ -158,12 +158,13 @@ class FakeStash:
         return [self.performer] if str((self.performer or {}).get("id")) in wanted else []
 
     def scrape_single_performer(self, source, scrape_input, selection, timeout=None):
-        scraper_id = source.get("scraper_id")
-        if "query" in scrape_input:
-            key = "pname:%s:%s" % (scraper_id, scrape_input["query"])
+        if source.get("stash_box_endpoint"):
+            key = "pbox:%s:%s" % (source["stash_box_endpoint"], scrape_input.get("query", ""))
+        elif "query" in scrape_input:
+            key = "pname:%s:%s" % (source.get("scraper_id"), scrape_input["query"])
         else:
             urls = (scrape_input.get("performer_input") or {}).get("urls") or [None]
-            key = "pfrag:%s:%s" % (scraper_id, urls[0])
+            key = "pfrag:%s:%s" % (source.get("scraper_id"), urls[0])
         self.calls.append(("scrape_single_performer", key, timeout))
         return self._answer(key)
 

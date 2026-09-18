@@ -630,17 +630,28 @@ def op_performer_run_cancel(context, args):
 
 
 def op_performer_scrapers(context, args):
-    """Installed performer-name scrapers, for the settings page's multi-select.
+    """Installed performer-name scrapers *and* configured stash-boxes, together, for
+    the settings page's multi-select.
 
     Never a hardcoded list (requirement 23): read fresh from Stash every time the
-    settings page loads, so a scraper installed or removed since is reflected without
-    touching this plugin's own settings.
+    settings page loads, so a scraper installed or removed - or a stash-box added or
+    removed in Settings -> Metadata Providers - since is reflected without touching
+    this plugin's own settings. A stash-box is listed under the id
+    `registry.STASHBOX_PREFIX + endpoint`, which is exactly what
+    `performer_discovery.PerformerRunner.fast_choices` expects back.
     """
     from . import registry as registry_module
     scrapers = registry_module.from_list_scrapers(
         context.client.list_performer_scrapers(), content_key="performer")
-    return {"scrapers": [{"id": entry["id"], "name": entry["name"],
-                          "kinds": entry["kinds"]} for entry in scrapers]}
+    out = [{"id": entry["id"], "name": entry["name"], "kinds": entry["kinds"],
+           "kind": "scraper"} for entry in scrapers]
+    for box in context.client.stash_boxes():
+        if not box.get("endpoint"):
+            continue
+        out.append({"id": registry_module.STASHBOX_PREFIX + box["endpoint"],
+                    "name": box.get("name") or box["endpoint"], "kinds": ["NAME"],
+                    "kind": "stashbox"})
+    return {"scrapers": out}
 
 
 def _fast_scraper_ids(context):
