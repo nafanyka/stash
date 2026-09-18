@@ -2679,6 +2679,7 @@
     var performerId = props.performerId;
     var status = useOp("performer.status", { performer_id: Number(performerId) });
     var history = Router.useHistory ? Router.useHistory() : null;
+    var starter = usePerformerRunStarter(function () { status.reload(); });
 
     React.useEffect(
       function () {
@@ -2712,12 +2713,14 @@
         h("h4", null, "FastDiscovery"),
         run ? h(StatusPill, { status: run.status }) : null
       ),
+      h(Problem, { error: starter.error }),
       !run
         ? h(
             "p",
             { className: "fd-muted" },
-            "Use the ⚡ Fast Discovery button above to run every performer-name " +
-              "scraper picked in settings. Nothing is written until you apply."
+            "Runs every performer-name scraper picked in settings, follows every URL " +
+              "those results carry, and puts every answer side by side for review. " +
+              "Nothing is written until you apply."
           )
         : h(
             "div",
@@ -2725,13 +2728,14 @@
             h("span", null, run.ok_source_count + " / " + run.source_count + " source(s) answered"),
             h("span", null, run.result_count + " result(s)"),
             h("span", null, run.url_count + " URL(s)"),
-            run.error_count ? h("span", { className: "fd-warn" }, run.error_count + " error(s)") : null
+            run.error_count ? h("span", { className: "fd-warn" }, run.error_count + " error(s)") : null,
+            run.error ? h("span", { className: "fd-warn" }, run.error) : null
           ),
-      reviewing
-        ? h(
-            "div",
-            { className: "fd-actions" },
-            h(
+      h(
+        "div",
+        { className: "fd-actions" },
+        reviewing
+          ? h(
               "button",
               {
                 className: "btn btn-primary",
@@ -2739,9 +2743,36 @@
               },
               "Review results"
             )
-          )
-        : null,
+          : null,
+        h(
+          "button",
+          {
+            className: reviewing ? "btn btn-secondary" : "btn btn-primary",
+            disabled: starter.busy || (run && run.status === "RUNNING"),
+            onClick: function () { starter.start(Number(performerId), false); }
+          },
+          run && run.status === "RUNNING"
+            ? "Running..."
+            : reviewing
+            ? "Rescan (Fast)"
+            : "⚡ Run Fast Performer Discovery"
+        ),
+        run && run.status === "RUNNING" && run.job_id
+          ? h(
+              "button",
+              {
+                className: "btn btn-secondary",
+                onClick: function () {
+                  callOp("performer.run_cancel", { run_id: run.id }).then(status.reload);
+                }
+              },
+              "Cancel"
+            )
+          : null
+      ),
       reviewing ? h(PerformerReviewPage, { performerId: performerId }) : null,
+      h(ConfirmRescan, { confirming: starter.confirming, onCancel: starter.cancelConfirm,
+                        onConfirm: starter.confirmReplace }),
       (status.data.history || []).length
         ? h(
             "div",
@@ -2762,11 +2793,29 @@
 
   /* -------------------------------------------------------------- registration */
 
-  api.register.route(BASE, RunsPage);
-  api.register.route(BASE + "/settings", SettingsPage);
-  api.register.route(BASE + "/scene/:id", ReviewPage);
-  api.register.route(BASE + "/performers", PerformerRunsPage);
-  api.register.route(BASE + "/performer/:id", PerformerReviewPage);
+  // One registered route, not five. `PluginApi.register.route` appends a plain
+  // `<Route path={path} component={...} />` - no `exact`, and the component that
+  // hosts every plugin's routes (`PluginRoutes`) renders its children as a bare
+  // Fragment, not a `Switch`. So several registered paths that are all prefixes of
+  // the same URL - `/fast-discovery` is a prefix of `/fast-discovery/performers` -
+  // render *at once*, stacked, rather than the more specific one winning. Routing
+  // ourselves with a real `Switch` inside one registered path is what actually
+  // gives each page exclusivity.
+  function FastDiscoveryRoot() {
+    return h(
+      Router.Switch,
+      null,
+      h(Router.Route, { exact: true, path: BASE, component: RunsPage }),
+      h(Router.Route, { exact: true, path: BASE + "/settings", component: SettingsPage }),
+      h(Router.Route, { exact: true, path: BASE + "/scene/:id", component: ReviewPage }),
+      h(Router.Route, { exact: true, path: BASE + "/performers", component: PerformerRunsPage }),
+      h(Router.Route, { exact: true, path: BASE + "/performer/:id",
+                        component: PerformerReviewPage }),
+      h(Router.Redirect, { to: BASE })
+    );
+  }
+
+  api.register.route(BASE, FastDiscoveryRoot);
 
   // Built to match what Stash renders for Scenes, Performers and the rest, class for
   // class: a Nav.Link wrapper carrying the responsive column widths, and inside it a
@@ -2929,21 +2978,28 @@
     });
   }
 
+  // A performer can arrive under more than one prop name depending on the
+  // component - the same reason PerformerOrganized's own `patches.js` checks all
+  // three - so this checks all three too rather than assuming `performer` alone.
+  function performerOf(props) {
+    return (props && (props.performer || props.item || props.object)) || null;
+  }
+
   attachAfter("PerformerDetailsPanel", "after", function (props) {
-    var performer = props && props.performer;
+    var performer = performerOf(props);
     return performer ? h(PerformerPanel, { key: "fd-performer-panel",
                                           performerId: performer.id }) : null;
   });
 
   attachAfter("CompressedPerformerDetailsPanel", "after", function (props) {
-    var performer = props && props.performer;
+    var performer = performerOf(props);
     return performer ? h(FastDiscoveryPerformerButton,
                         { key: "fd-performer-compressed", performer: performer,
                           inline: true }) : null;
   });
 
   attachAfter("PerformerCard.Overlays", "after", function (props) {
-    var performer = props && props.performer;
+    var performer = performerOf(props);
     return performer ? h(FastDiscoveryPerformerButton,
                         { key: "fd-performer-card", performer: performer }) : null;
   });
