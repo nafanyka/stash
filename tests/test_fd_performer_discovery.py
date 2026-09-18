@@ -278,16 +278,42 @@ class TestUrlRecursion:
         assert max(u["depth"] for u in urls) <= 2 + 1
         assert any(u["state"] == R.U_SKIPPED_DEPTH for u in urls)
 
-    def test_fast_alone_never_scrapes_a_url(self, fd_repo):
-        url_a = "https://pshared.com/a"
+    def test_fast_completes_depth_zero_but_defers_deeper_urls_to_full(self, fd_repo):
+        # Depth 0 is each candidate's own profile URL - for most non-stash-box
+        # scrapers, where the actual images live, since the name search itself
+        # usually returns just a name and this link (requirement: Fast still
+        # completes what it found, it just does not chase further).
+        url_a = "https://perfa.com/a"
+        url_b = "https://perfa.com/b"
         client = FakeStash(performer=dict(PERFORMER, urls=[url_a]), responses={
-            "purl:" + url_a: scraped_performer(name="Bonnie Alex"),
+            "purl:" + url_a: scraped_performer(name="Bonnie Alex", urls=[url_b]),
+            "purl:" + url_b: scraped_performer(name="Bonnie Alex"),
         })
         config = perf_config([])
         summary = runner(client, fd_repo, config).run_fast(42)
-        assert not any(call[0] == "scrape_performer_url" for call in client.calls)
-        urls = fd_repo.urls_of(summary["run_id"])
-        assert urls and all(u["state"] == R.U_PENDING for u in urls)
+        scraped = [call[1] for call in client.calls if call[0] == "scrape_performer_url"]
+        assert scraped == [url_a]
+
+        by_url = {u["url"]: u for u in fd_repo.urls_of(summary["run_id"])}
+        assert by_url[url_a]["state"] == R.U_SCRAPED
+        # Not U_SKIPPED_DEPTH either: still PENDING, so Full's own pass - not Fast's
+        # clamp - is what actually decides whether it goes further.
+        assert by_url[url_b]["state"] == R.U_PENDING
+
+    def test_full_afterwards_picks_up_the_depth_fast_deferred(self, fd_repo):
+        url_a = "https://perfa.com/a"
+        url_b = "https://perfa.com/b"
+        client = FakeStash(performer=dict(PERFORMER, urls=[url_a]), responses={
+            "purl:" + url_a: scraped_performer(name="Bonnie Alex", urls=[url_b]),
+            "purl:" + url_b: scraped_performer(name="Bonnie Alex X")}, boxes=[])
+        config = perf_config([])
+        one = runner(client, fd_repo, config)
+        fast_summary = one.run_fast(42)
+        one.run_full(fast_summary["run_id"])
+        scraped = [call[1] for call in client.calls if call[0] == "scrape_performer_url"]
+        assert scraped == [url_a, url_b]
+        by_url = {u["url"]: u for u in fd_repo.urls_of(fast_summary["run_id"])}
+        assert by_url[url_b]["state"] == R.U_SCRAPED
 
 
 class TestSharedUrlProvenance:

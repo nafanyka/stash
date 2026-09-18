@@ -26,9 +26,10 @@ ambiguous URL scrape at every scraper that also supports FRAGMENT - is the exact
 mechanism scenes use (`registry.Registry.url_sources`, `urls.py`, `executor.py`), just
 pointed at a `Registry` built from performer scrapers and at
 `scrapePerformerURL`/`scrapeSinglePerformer` instead of the scene equivalents. Fast
-skips it entirely - it seeds the URL frontier but never walks it, so the button stays
-quick - and Full is what actually expands it, starting from depth 0, so Fast's own
-seeded URLs get their first pass then too.
+only ever walks depth 0 - each name-search candidate's own profile URL, which for
+most non-stash-box scrapers is where the actual images live, the name search itself
+usually returning just a name and this link - never depth 1+, which is real
+recursion into pages that URL mentions in turn. Full picks up from depth 1 onward.
 """
 
 from __future__ import annotations
@@ -251,14 +252,11 @@ class PerformerRunner:
             self._seed_urls(state, registry)
             self._run_name_and_box_waves(state, registry, scraper_ids,
                                          snapshot["search_term"], progress_hook)
-            # Fast is meant to be fast: URL discovery - following whatever the boxes
-            # and scrapers just returned through every scraper that can read those
-            # pages - is real work, and it is exactly what Full is for. The seeded
-            # URLs are not lost: they sit PENDING in the database and Full's own
-            # `_expand_urls` call picks up every depth from scratch, this run's
-            # included.
-            if mode != "FAST":
-                self._expand_urls(state, registry, progress_hook)
+            # Depth 0 only in Fast - each result's own profile URL, which is where
+            # most non-stash-box scrapers actually keep their images (see
+            # `_expand_urls`'s docstring). Anything deeper is real recursion and
+            # stays PENDING for Full.
+            self._expand_urls(state, registry, progress_hook, mode=mode)
             status = self._final_status(state)
             self._finish(run_id, state, status)
         except Exception as exc:
@@ -325,10 +323,24 @@ class PerformerRunner:
             if url_id is not None:
                 state.url_total += 1
 
-    def _expand_urls(self, state, registry, progress_hook):
-        max_depth = int(self.config["performerMaxUrlDepth"])
+    def _expand_urls(self, state, registry, progress_hook, mode=None):
+        """Walk the URL frontier - but Fast only ever walks depth 0.
+
+        Depth 0 is not "recursion": it is each name-search candidate's own profile
+        URL (`raw.get("url")`/`raw.get("urls")`, recorded at depth 0 for a
+        `performer_name` source - see `_record_urls`), and for most non-stash-box
+        scrapers that one fetch is where the actual profile - images included -
+        lives; the name search itself often returns only a name and this link.
+        Skipping it, as Fast briefly did, left every such scraper looking broken
+        even though it had genuinely found the performer. What Fast still skips is
+        depth 1+: URLs *that* page mentions in turn, on other sites - real
+        recursion, and real extra network time, which is what "no URL parsing in
+        Fast" actually meant. Full does that part, starting from depth 1.
+        """
+        configured_max = int(self.config["performerMaxUrlDepth"])
         if not self.config["recursiveUrlDiscovery"]:
-            max_depth = 0
+            configured_max = 0
+        max_depth = 0 if mode == "FAST" else configured_max
 
         depth = 0
         while depth <= max_depth:
@@ -366,13 +378,17 @@ class PerformerRunner:
                 self._run_wave(state, wave, registry, progress_hook)
             depth += 1
 
-        for extra_depth in range(max_depth + 1,
-                                 int(self.config["performerMaxUrlDepth"]) + 2):
+        if mode == "FAST":
+            # depth 1+ is not skipped, only deferred: these URLs stay PENDING so
+            # Full's own call - real `configured_max`, no mode clamp - still finds
+            # and walks them. Marking them SKIPPED_DEPTH here would be permanent
+            # and Full would never see them as pending again.
+            return
+        for extra_depth in range(max_depth + 1, configured_max + 2):
             for row in self.repo.pending_urls(state.run_id, extra_depth):
                 self.repo.set_url_state(
                     row["id"], R.U_SKIPPED_DEPTH,
-                    "beyond performerMaxUrlDepth (%s)"
-                    % self.config["performerMaxUrlDepth"])
+                    "beyond performerMaxUrlDepth (%s)" % configured_max)
 
     def _source_of_result(self, result_id):
         result = self.repo.result(result_id)
