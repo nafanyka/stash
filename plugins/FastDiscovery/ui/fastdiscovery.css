@@ -476,8 +476,13 @@
 }
 
 .fd-thumb-gallery {
-  width: 100%;
-  max-width: 100%;
+  /* A fallback for when no `width` prop is given (a scene's single cover never
+     passes one) - sized to its own image, not stretched to fill a flex/grid
+     parent, which is exactly what left empty space beside a narrower performer
+     photo before the gallery became flex-wrap. When `width` *is* given (the
+     performer preview-width setting), Thumbnail's inline style overrides this. */
+  width: auto;
+  max-width: 220px;
   max-height: 240px;
   height: auto;
   object-fit: contain;
@@ -531,16 +536,17 @@
 .fd-thumb-small.fd-thumb-missing { width: 75%; }
 
 .fd-thumb-gallery.fd-thumb-loading,
-.fd-thumb-gallery.fd-thumb-missing { width: 100%; }
+.fd-thumb-gallery.fd-thumb-missing { width: 220px; }
 
+/* Flex-wrap, not a fixed column grid: each item sizes to its own image (which
+   already has a fixed pixel width via the preview-width setting) and the row just
+   wraps whenever the next one would not fit - no equal-width columns leaving empty
+   space around a narrower picture. */
 .fd-gallery {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-}
-
-@media (max-width: 900px) {
-  .fd-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.6rem;
 }
 
 /* Bootstrap caps a large dialog at 800px, which is three thumbnails' worth of
@@ -550,14 +556,19 @@
 }
 
 .fd-gallery-item {
-  display: flex;
+  display: inline-flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.5rem;
+  align-items: center;
+  width: auto;
+  padding: 0.4rem;
   border: 1px solid rgba(128, 128, 128, 0.3);
   border-radius: 4px;
   cursor: pointer;
   font-weight: normal;
+}
+
+.fd-gallery-item input[type="radio"] {
+  margin: 0 0 0.3rem;
 }
 
 .fd-gallery-selected {

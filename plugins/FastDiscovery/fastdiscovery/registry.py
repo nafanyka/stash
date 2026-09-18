@@ -280,37 +280,21 @@ def performer_name_sources(registry, scraper_ids, name):
     return out
 
 
-# A stash-box, in a Fast/Full performer scraper list, is written as this prefix plus
-# its endpoint - never its own array or its own setting, because the whole reason a
-# scraper _id_ is a plain string is that a stash-box endpoint is already a string
-# Stash hands back from `configuration.general.stashBoxes`, so one list, one shape,
-# serves both without a second kind of setting to keep in sync (requirement 1: pick
-# from Babepedia, IAFD, StashDB, ThePornDB... in one multi-select).
-STASHBOX_PREFIX = "stashbox:"
+def performer_box_sources(stash_boxes, name):
+    """One source per *every* configured stash-box, queried by the performer's name.
 
-
-def is_stashbox_choice(choice):
-    return str(choice or "").startswith(STASHBOX_PREFIX)
-
-
-def stashbox_endpoint_of(choice):
-    return str(choice)[len(STASHBOX_PREFIX):]
-
-
-def performer_stashbox_sources(stash_boxes, endpoints, name):
-    """One source per chosen stash-box, queried by the performer's name.
-
-    Exactly `scrapeSinglePerformer(source: {stash_box_endpoint}, input: {query})` -
-    the same operation `ScrapeMultiPerformers`/the tagger use, just one performer at
-    a time. A stash-box no longer configured in Stash since it was picked is skipped
-    silently, the same way a removed scraper is (requirement 23).
+    Unconditional, exactly the way `Registry.box_sources` asks every stash-box for a
+    scene: a stash-box is never something the Fast/Full picklist opts into or out of,
+    it is simply always asked, ahead of the picked scrapers and ahead of URL
+    discovery (requirement: stash-boxes take priority). `scrapeSinglePerformer(source:
+    {stash_box_endpoint}, input: {query})` is the same operation the tagger uses, one
+    performer at a time. Nothing here reads Fast/Full settings; the runner decides
+    when to call this, never whether to.
     """
-    by_endpoint = {box["endpoint"]: box for box in (stash_boxes or [])
-                  if box.get("endpoint")}
     out = []
-    for endpoint in endpoints:
-        box = by_endpoint.get(endpoint)
-        if box is None:
+    for box in (stash_boxes or []):
+        endpoint = box.get("endpoint")
+        if not endpoint:
             continue
         out.append({"type": "performer_name", "method": M_STASHBOX_QUERY,
                     "endpoint": endpoint, "name": box.get("name") or endpoint,

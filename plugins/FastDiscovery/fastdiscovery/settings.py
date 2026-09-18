@@ -14,6 +14,9 @@ and a second copy of an API key is a second thing to leak (requirement 2, 43).
 
 from __future__ import annotations
 
+import json
+import re
+
 STRING, NUMBER, BOOLEAN = "STRING", "NUMBER", "BOOLEAN"
 
 # Stash derives a plugin's id from its yml filename.
@@ -193,6 +196,33 @@ def parse(raw) -> Config:
         values[name] = str(given).strip() if given is not None else default
 
     return Config(values, problems)
+
+
+def parse_choice_list(raw):
+    """A Fast/Full performer-scraper list, tolerant of how it was actually typed.
+
+    The FastDiscovery settings page always writes back a JSON array through its own
+    multi-select. But `performerFastScrapers` is a plain STRING setting, and Stash's
+    *own* generic Settings -> Plugins panel edits any STRING setting as an ordinary
+    text box - there is nothing there suggesting JSON, so someone typing
+    "StashDB, ThePornDB" directly is exactly what that box invites. Treating that as
+    invalid and silently falling back to an empty list - which is what a bare
+    `json.loads` failure did before this - makes every scraper picked that way look
+    ignored, for no reason the settings panel gives any hint of. So a value that
+    parses as a JSON array is trusted as one; anything else is split on commas,
+    semicolons or newlines instead of being discarded.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, list):
+            return [str(one).strip() for one in parsed if str(one).strip()]
+    return [one.strip() for one in re.split(r"[,;\n]+", text) if one.strip()]
 
 
 def describe(config: Config):

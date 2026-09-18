@@ -177,16 +177,20 @@ def task_discover_performers(context, args):
 
 
 def task_maintenance(context, args):
-    """Sweep runs whose process died, drop unreferenced images, compact the file."""
+    """Sweep runs whose process died, purge dead-end payloads, drop unreferenced
+    images, compact the file."""
     swept = context.repo.sweep_stale_runs(context.config["staleRunHours"])
+    dead_ends = context.repo.purge_finished_dead_end_runs()
     orphans = context.repo.purge_orphan_images()
     before = context.repo.counts().get("bytes", 0)
     context.repo.vacuum()
     after = context.repo.counts().get("bytes", 0)
-    logs.info("maintenance: %d stale run(s) marked failed, %d orphan image(s) removed, "
-              "database %d -> %d bytes" % (swept, orphans, before, after))
-    return {"stale_runs_failed": swept, "orphan_images_removed": orphans,
-            "bytes_before": before, "bytes_after": after}
+    logs.info("maintenance: %d stale run(s) marked failed, %d dead-end run(s) "
+              "purged, %d orphan image(s) removed, database %d -> %d bytes"
+              % (swept, dead_ends, orphans, before, after))
+    return {"stale_runs_failed": swept, "dead_end_runs_purged": dead_ends,
+            "orphan_images_removed": orphans, "bytes_before": before,
+            "bytes_after": after}
 
 
 def task_show_settings(context, args):

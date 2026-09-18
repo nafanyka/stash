@@ -84,53 +84,66 @@ class TestNameResults:
 
 
 class TestStashBoxes:
-    """A stash-box is a valid Fast/Full performer source too, chosen the same way
-    as a scraper: `stashbox:<endpoint>` in `performerFastScrapers`."""
+    """Every configured stash-box is asked unconditionally, before the picked
+    scrapers, on both Fast and Full - never a setting to opt into, exactly the way
+    scene discovery always asks every box (requirement: stash-boxes take priority).
+    """
 
     STASHDB = "https://stashdb.org/graphql"
     TPDB = "https://theporndb.net/graphql"
 
-    def test_a_stashbox_choice_is_queried_by_name(self, fd_repo):
-        client = FakeStash(performer=PERFORMER, responses={
+    def test_every_configured_box_is_asked_with_no_scrapers_picked_at_all(
+            self, fd_repo):
+        client = FakeStash(performer=PERFORMER, boxes=[
+            {"name": "StashDB", "endpoint": self.STASHDB},
+            {"name": "ThePornDB", "endpoint": self.TPDB}], responses={
             "pbox:%s:Bonnie Alex" % self.STASHDB: scraped_performer(name="Bonnie Alex"),
+            "pbox:%s:Bonnie Alex" % self.TPDB: scraped_performer(name="Bonnie Alex"),
         })
-        config = perf_config(["stashbox:" + self.STASHDB])
+        config = perf_config([])   # no Fast scrapers picked in settings at all
         summary = runner(client, fd_repo, config).run_fast(42)
-        assert summary["results"] == 1
-        asked = [c[1] for c in client.calls if c[0] == "scrape_single_performer"]
-        assert asked == ["pbox:%s:Bonnie Alex" % self.STASHDB]
+        assert summary["results"] == 2
+        asked = sorted(c[1] for c in client.calls if c[0] == "scrape_single_performer")
+        assert asked == sorted(["pbox:%s:Bonnie Alex" % self.STASHDB,
+                                "pbox:%s:Bonnie Alex" % self.TPDB])
 
-    def test_scrapers_and_stashboxes_mix_in_one_fast_run(self, fd_repo):
-        client = FakeStash(performer=PERFORMER, responses={
+    def test_boxes_and_picked_scrapers_both_run_in_one_fast_pass(self, fd_repo):
+        client = FakeStash(performer=PERFORMER, boxes=[
+            {"name": "StashDB", "endpoint": self.STASHDB}], responses={
             "pname:Babepedia:Bonnie Alex": scraped_performer(name="Bonnie Alex"),
             "pbox:%s:Bonnie Alex" % self.STASHDB: scraped_performer(name="Bonnie Alex"),
-            "pbox:%s:Bonnie Alex" % self.TPDB: scraped_performer(name="Bonnie Alex"),
         })
-        config = perf_config(["Babepedia", "stashbox:" + self.STASHDB,
-                              "stashbox:" + self.TPDB])
+        config = perf_config(["Babepedia"])
         summary = runner(client, fd_repo, config).run_fast(42)
-        assert summary["results"] == 3
+        assert summary["results"] == 2
 
-    def test_a_removed_stashbox_choice_is_skipped_silently(self, fd_repo):
-        client = FakeStash(performer=PERFORMER, boxes=[
-            {"name": "StashDB", "endpoint": self.STASHDB}])
-        config = perf_config(["stashbox:" + self.STASHDB,
-                              "stashbox:https://gone.example/graphql"])
-        summary = runner(client, fd_repo, config).run_fast(42)
-        asked = [c[1] for c in client.calls if c[0] == "scrape_single_performer"]
-        assert not any("gone.example" in one for one in asked)
-
-    def test_full_does_not_re_query_a_stashbox_fast_already_used(self, fd_repo):
-        client = FakeStash(performer=PERFORMER, responses={
+    def test_boxes_run_even_when_nothing_is_installed_or_picked(self, fd_repo):
+        # No performer-name scrapers at all, just a configured box - discovery must
+        # still try it rather than doing nothing (boxes are never optional).
+        client = FakeStash(performer=PERFORMER, performer_scrapers=[], boxes=[
+            {"name": "StashDB", "endpoint": self.STASHDB}], responses={
             "pbox:%s:Bonnie Alex" % self.STASHDB: scraped_performer(name="Bonnie Alex"),
-            "pbox:%s:Bonnie Alex" % self.TPDB: scraped_performer(name="Bonnie Alex"),
         })
-        config = perf_config(["stashbox:" + self.STASHDB])
+        summary = runner(client, fd_repo, perf_config([])).run_fast(42)
+        assert summary["results"] == 1
+
+    def test_full_does_not_re_query_a_box_fast_already_used_but_picks_up_a_new_one(
+            self, fd_repo):
+        client = FakeStash(performer=PERFORMER, boxes=[
+            {"name": "StashDB", "endpoint": self.STASHDB}], responses={
+            "pbox:%s:Bonnie Alex" % self.STASHDB: scraped_performer(name="Bonnie Alex"),
+        })
+        config = perf_config([])
         run = runner(client, fd_repo, config)
         fast_summary = run.run_fast(42)
         asked_after_fast = [c[1] for c in client.calls if c[0] == "scrape_single_performer"]
         assert asked_after_fast == ["pbox:%s:Bonnie Alex" % self.STASHDB]
 
+        # A second box gets added to Stash's configuration between Fast and Full.
+        client.boxes = [{"name": "StashDB", "endpoint": self.STASHDB},
+                        {"name": "ThePornDB", "endpoint": self.TPDB}]
+        client.responses["pbox:%s:Bonnie Alex" % self.TPDB] = scraped_performer(
+            name="Bonnie Alex")
         run.run_full(fast_summary["run_id"])
         asked_after_full = [c[1] for c in client.calls if c[0] == "scrape_single_performer"]
         assert asked_after_full.count("pbox:%s:Bonnie Alex" % self.STASHDB) == 1
@@ -141,7 +154,10 @@ class TestFastThenFull:
     """Specification section 26 / test G: Full never repeats a Fast scraper."""
 
     def test_full_only_runs_scrapers_fast_did_not_use(self, fd_repo):
-        client = FakeStash(performer=PERFORMER, responses={
+        # No stash-boxes here: this test is about the scraper picklist specifically,
+        # and the fake's default boxes would add two more (harmless, but noise for
+        # an exact-list assertion) - see TestStashBoxes for box behaviour.
+        client = FakeStash(performer=PERFORMER, boxes=[], responses={
             "pname:Babepedia:Bonnie Alex": scraped_performer(name="Bonnie Alex"),
             "pname:IAFD:Bonnie Alex": scraped_performer(name="Bonnie Alex"),
             "pname:StashDB:Bonnie Alex": scraped_performer(name="Bonnie Alex"),

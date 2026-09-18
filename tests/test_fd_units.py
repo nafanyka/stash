@@ -196,6 +196,87 @@ class TestSettings:
                     and name != "stashboxNameSearch"]
 
 
+class TestChoiceListParsing:
+    """`performerFastScrapers` is a plain STRING setting, editable two ways: the
+    FastDiscovery settings page's own multi-select (writes JSON), or Stash's
+    generic Settings -> Plugins text box (invites plain text) - both must work."""
+
+    def test_a_json_array_is_read_as_one(self):
+        assert settings.parse_choice_list('["Babepedia", "IAFD"]') == \
+            ["Babepedia", "IAFD"]
+
+    def test_a_plain_comma_separated_list_is_not_silently_ignored(self):
+        assert settings.parse_choice_list("StashDB, ThePornDB, PMVStash") == \
+            ["StashDB", "ThePornDB", "PMVStash"]
+
+    def test_semicolons_and_newlines_also_separate(self):
+        assert settings.parse_choice_list("A; B\nC") == ["A", "B", "C"]
+
+    def test_empty_is_empty(self):
+        assert settings.parse_choice_list("") == []
+        assert settings.parse_choice_list(None) == []
+
+    def test_malformed_json_falls_back_to_plain_text_rather_than_vanishing(self):
+        assert settings.parse_choice_list("[Babepedia, IAFD") == \
+            ["[Babepedia", "IAFD"]
+
+
+class TestMaintenancePurge:
+    """Maintenance is what actually drops a dead-end run's payload - not just stale
+    RUNNING ones - so the database does not just accumulate `sources`/`results`/
+    `urls` rows for runs nobody will ever decide."""
+
+    def _terminal_source(self, repo, run_id, entity_id, key):
+        return repo.add_terminal_source(
+            run_id, entity_id,
+            {"type": "current", "method": "", "name": "Current", "depth": 0,
+             "source_key": key, "attribution": "CERTAIN"},
+            "OK")
+
+    def test_no_results_and_failed_runs_are_purged(self, fd_repo):
+        from fastdiscovery.db import repo as R
+
+        empty_run = fd_repo.start_run(1, "manual", {}, {})
+        self._terminal_source(fd_repo, empty_run, 1, "current")
+        fd_repo.finish_run(empty_run, R.NO_RESULTS)
+
+        failed_run = fd_repo.start_run(2, "manual", {}, {})
+        self._terminal_source(fd_repo, failed_run, 2, "current")
+        fd_repo.finish_run(failed_run, R.FAILED, error="boom")
+
+        purged = fd_repo.purge_finished_dead_end_runs()
+        assert purged == 2
+        for run_id in (empty_run, failed_run):
+            row = fd_repo.run(run_id)
+            assert row["purged"] is True
+            assert fd_repo.sources_of(run_id) == []
+
+    def test_a_reviewable_run_is_left_alone(self, fd_repo):
+        from fastdiscovery.db import repo as R
+
+        run_id = fd_repo.start_run(3, "manual", {}, {})
+        self._terminal_source(fd_repo, run_id, 3, "current")
+        fd_repo.finish_run(run_id, R.READY_FOR_REVIEW)
+
+        assert fd_repo.purge_finished_dead_end_runs() == 0
+        assert fd_repo.run(run_id)["purged"] is False
+        assert fd_repo.sources_of(run_id)
+
+    def test_a_failed_apply_stays_reviewable_not_purged(self, fd_repo):
+        # This is the one status Apply can be retried from - purging it would take
+        # away the whole point of leaving it reviewable (requirement 20).
+        from fastdiscovery.db import repo as R
+
+        run_id = fd_repo.start_run(4, "manual", {}, {})
+        self._terminal_source(fd_repo, run_id, 4, "current")
+        fd_repo.finish_run(run_id, R.READY_FOR_REVIEW)
+        fd_repo.set_run_status(run_id, R.FAILED_APPLY, error="stash unreachable")
+
+        assert fd_repo.purge_finished_dead_end_runs() == 0
+        assert fd_repo.run(run_id)["purged"] is False
+        assert fd_repo.sources_of(run_id)
+
+
 class TestLogSafety:
     def test_a_credential_in_a_message_is_redacted(self):
         from fastdiscovery import logs

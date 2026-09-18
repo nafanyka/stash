@@ -346,6 +346,29 @@ class Repo:
             self.connection.execute("DELETE FROM runs WHERE id = ?", (int(run_id),))
         return self.purge_orphan_images()
 
+    def purge_finished_dead_end_runs(self):
+        """Drop the payload of every run that is over and will never be decided.
+
+        `NO_RESULTS` found nothing to review, a plain `FAILED` run never produced a
+        payload worth keeping either, and `CANCELLED` is a stop mid-run - none of
+        the three can still be reviewed or applied, so their `sources`/`results`/
+        `urls` rows are dead weight from the moment they finish, not just after a
+        purge someone remembered to run. This is what "run Maintenance" is *for*
+        (requirement 20's mirror: a run that is not reviewable should not go on
+        holding its whole payload). `FAILED_APPLY` is deliberately excluded - it
+        stays reviewable on purpose, so Apply can simply be pressed again - and so
+        is anything already `RUNNING` or already reviewable.
+
+        Purges exactly the way Apply/Reject do (`purge_run`), so the run row and its
+        audit columns survive; only the heavy payload goes.
+        """
+        rows = self.connection.execute(
+            "SELECT id FROM runs WHERE purged = 0 AND status IN (?, ?, ?)",
+            (NO_RESULTS, CANCELLED, FAILED)).fetchall()
+        for row in rows:
+            self.purge_run(row["id"])
+        return len(rows)
+
     def purge_orphan_images(self):
         with self.connection:
             cursor = self.connection.execute(

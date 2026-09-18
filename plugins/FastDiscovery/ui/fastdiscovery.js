@@ -800,12 +800,9 @@
                       "div",
                       { className: "fd-gallery" },
                       group.items.map(function (candidate) {
-                        // A photo shared with another source still names every one of
-                        // them - the group heading says which source this section is
-                        // about, the caption says everything else that also offered it.
-                        var others = candidate.sources.filter(function (id) {
-                          return id !== group.column.id;
-                        });
+                        // The group heading already says the source; a photo shared
+                        // with another source is simply in both groups, so no
+                        // per-image caption is needed here.
                         return h(
                           "label",
                           {
@@ -820,16 +817,7 @@
                             onChange: function () { props.onPick(candidate.id); }
                           }),
                           h(Thumbnail, { candidate: candidate, size: "gallery",
-                                        width: props.thumbWidth }),
-                          others.length
-                            ? h(
-                                "span",
-                                { className: "fd-gallery-label" },
-                                "also: " + others
-                                  .map(function (id) { return (columns[id] || {}).name || id; })
-                                  .join(" · ")
-                              )
-                            : null
+                                        width: props.thumbWidth })
                         );
                       })
                     )
@@ -1698,19 +1686,53 @@
 
   /* ------------------------------------------------------------- settings page */
 
+  // Every stash-box is asked unconditionally, always first - never a setting to
+  // pick (requirement: stash-boxes take priority, exactly the way scene discovery
+  // always asks every one of them). This picklist is performer-*name-scraper*
+  // choices only.
+  function parsePerformerScraperList(value) {
+    var text = String(value || "").trim();
+    if (!text) return [];
+    if (text.charAt(0) === "[") {
+      try {
+        var parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+          return parsed.map(function (one) { return String(one).trim(); })
+            .filter(Boolean);
+        }
+      } catch (error) { /* fall through to the plain-text form below */ }
+    }
+    // Stash's own generic Settings -> Plugins panel edits any STRING setting as a
+    // plain text box, and someone typing "StashDB, ThePornDB" there is not wrong -
+    // nothing tells them it has to be JSON - so that has to parse too.
+    return text.split(/[,;\n]+/).map(function (one) { return one.trim(); })
+      .filter(Boolean);
+  }
+
   function PerformerScraperMultiSelect(props) {
     // Never a hardcoded list (requirement 23): built from the performer-name
-    // scrapers Stash has installed *and* the stash-boxes it has configured, both
-    // fetched fresh every time this page loads (`performer.scrapers`, which reads
-    // `listScrapers` and `configuration.general.stashBoxes` live). A previously
-    // picked id that has since disappeared still shows in the saved value until
-    // unticked, but is otherwise silently ignored at run time
-    // (performer_discovery.PerformerRunner.fast_choices), so a stale pick here
-    // cannot fail a run.
+    // scrapers Stash actually has installed right now, fetched fresh every time
+    // this page loads. A previously picked scraper that has since disappeared still
+    // shows in the saved value until unticked, but is otherwise silently ignored at
+    // run time (`performer_discovery.PerformerRunner.fast_scraper_ids`), so a stale
+    // pick here cannot fail a run.
     var available = useOp("performer.scrapers", {});
+    var scrapers = (available.data && available.data.scrapers) || [];
+    var typed = parsePerformerScraperList(props.value);
+    // A typed entry may be an id or a display name, in whatever case someone used -
+    // resolved against what is actually installed the same tolerant way
+    // `fast_scraper_ids` does, so a checkbox here agrees with what a run would use.
+    var byKey = {};
+    scrapers.forEach(function (entry) {
+      byKey[entry.id] = entry.id;
+      byKey[entry.id.toLowerCase()] = entry.id;
+      byKey[entry.name.toLowerCase()] = entry.id;
+    });
     var picked = [];
-    try { picked = JSON.parse(props.value || "[]"); } catch (error) { picked = []; }
-    if (!Array.isArray(picked)) picked = [];
+    typed.forEach(function (choice) {
+      var real = byKey[choice] || byKey[choice.toLowerCase()];
+      if (real && picked.indexOf(real) < 0) picked.push(real);
+    });
 
     function toggle(id) {
       var next = picked.indexOf(id) >= 0
@@ -1721,12 +1743,10 @@
 
     if (available.loading && !available.data) return h(Loading, { label: "Loading installed performer scrapers..." });
     if (available.error) return h(Problem, { error: available.error, onRetry: available.reload });
-    var scrapers = (available.data && available.data.scrapers) || [];
     if (!scrapers.length) {
       return h("div", { className: "fd-muted" },
-                "No performer-name scrapers or stash-boxes are available. Install a " +
-                  "performer scraper, or add a stash-box, under Settings -> Metadata " +
-                  "Providers, then come back here.");
+                "No performer-name scrapers are installed. Install one under " +
+                  "Settings -> Metadata Providers, then come back here.");
     }
     return h(
       "div",
@@ -1737,10 +1757,7 @@
           "label",
           { key: entry.id, className: cx("fd-pick", on && "fd-pick-on") },
           h("input", { type: "checkbox", checked: on, onChange: function () { toggle(entry.id); } }),
-          h("span", null, entry.name),
-          entry.kind === "stashbox"
-            ? h("span", { className: "fd-muted" }, " (stash-box)")
-            : null
+          h("span", null, entry.name)
         );
       })
     );
@@ -1882,6 +1899,7 @@
                 function (result) {
                   saved[1](
                     "Cleaned up: " + result.stale_runs_failed + " stale run(s), " +
+                      result.dead_end_runs_purged + " dead-end run(s), " +
                       result.orphan_images_removed + " image(s)."
                   );
                 },
@@ -2663,10 +2681,18 @@
 
   /* ----------------------------------------------------- performer page button */
 
-  // The real Fast Discovery trigger (see _MyFastPerformerScrapper.yml for why it is
-  // not the scraper dropdown): a plain button reading the real performer id straight
-  // from React props, exactly the way PerformerOrganized's own controls do. Queues
-  // the job and toasts; no scrape/merge dialog is ever shown.
+  // The Fast Discovery trigger: a plain button reading the real performer id
+  // straight from React props, exactly the way PerformerOrganized's own controls
+  // do. Not a registered scraper - Stash gives a scraper_id-based performer scrape
+  // no reliable id, and its own "Scrape with..." menu always opens a search dialog
+  // first regardless of what the scraper declares, so a scraper entry point cannot
+  // do this: queue the job and toast, no dialog at all.
+  // The whole performer-page footprint, by design (requirement: nothing on the
+  // performer's own page except this button and its status - history and the full
+  // review live on the separate FastDiscovery Performers page/review route).
+  // `showStatus` adds a small StatusPill next to the label, for the details-panel
+  // placement where there is room for it; the card/compressed placements omit it
+  // and rely on the label alone ("⚡", "⚡ ...", "⚡ 4").
   function FastDiscoveryPerformerButton(props) {
     var performer = props.performer;
     var toaster = useToaster();
@@ -2677,10 +2703,23 @@
       toaster.success("Fast performer scraping queued");
       status.reload();
     });
+
+    // Poll only while something is actually running, so the button/status catches
+    // up without the reviewer having to reopen the page.
+    React.useEffect(
+      function () {
+        var run = status.data && status.data.run;
+        if (!run || run.status !== "RUNNING") return undefined;
+        var timer = setInterval(status.reload, 4000);
+        return function () { clearInterval(timer); };
+      },
+      [status.data]
+    );
+
     if (!performer || !performer.id) return null;
 
     var run = status.data && status.data.run;
-    var label = "⚡";
+    var label = "⚡ Fast Discovery";
     var onClick = function (event) {
       if (event && event.stopPropagation) event.stopPropagation();
       starter.start(Number(performer.id), false).then(function (result) {
@@ -2691,7 +2730,7 @@
       label = "⚡ ...";
       onClick = function (event) { if (event && event.stopPropagation) event.stopPropagation(); };
     } else if (run && run.reviewable) {
-      label = "⚡ " + run.result_count;
+      label = "⚡ Review (" + run.result_count + ")";
       onClick = function (event) {
         if (event && event.stopPropagation) event.stopPropagation();
         if (history) history.push(BASE + "/performer/" + performer.id);
@@ -2713,124 +2752,10 @@
         },
         label
       ),
+      props.showStatus && run ? h(StatusPill, { status: run.status }) : null,
+      h(Problem, { error: starter.error }),
       h(ConfirmRescan, { confirming: starter.confirming, onCancel: starter.cancelConfirm,
                         onConfirm: starter.confirmReplace })
-    );
-  }
-
-  function PerformerPanel(props) {
-    var performerId = props.performerId;
-    var status = useOp("performer.status", { performer_id: Number(performerId) });
-    var history = Router.useHistory ? Router.useHistory() : null;
-    var starter = usePerformerRunStarter(function () { status.reload(); });
-
-    React.useEffect(
-      function () {
-        var run = status.data && status.data.run;
-        if (!run || run.status !== "RUNNING") return undefined;
-        var timer = setInterval(status.reload, 4000);
-        return function () { clearInterval(timer); };
-      },
-      [status.data]
-    );
-    React.useEffect(
-      function () {
-        window.addEventListener(CHANGED_EVENT, status.reload);
-        return function () { window.removeEventListener(CHANGED_EVENT, status.reload); };
-      },
-      [status.reload]
-    );
-
-    if (status.loading && !status.data) return h(Loading, null);
-    if (status.error) return h(Problem, { error: status.error, onRetry: status.reload });
-
-    var run = status.data && status.data.run;
-    var reviewing = run && run.reviewable;
-
-    return h(
-      "div",
-      { className: "fd-panel" },
-      h(
-        "div",
-        { className: "fd-panel-head" },
-        h("h4", null, "FastDiscovery"),
-        run ? h(StatusPill, { status: run.status }) : null
-      ),
-      h(Problem, { error: starter.error }),
-      !run
-        ? h(
-            "p",
-            { className: "fd-muted" },
-            "Runs every performer-name scraper picked in settings, follows every URL " +
-              "those results carry, and puts every answer side by side for review. " +
-              "Nothing is written until you apply."
-          )
-        : h(
-            "div",
-            { className: "fd-panel-counts" },
-            h("span", null, run.ok_source_count + " / " + run.source_count + " source(s) answered"),
-            h("span", null, run.result_count + " result(s)"),
-            h("span", null, run.url_count + " URL(s)"),
-            run.error_count ? h("span", { className: "fd-warn" }, run.error_count + " error(s)") : null,
-            run.error ? h("span", { className: "fd-warn" }, run.error) : null
-          ),
-      h(
-        "div",
-        { className: "fd-actions" },
-        reviewing
-          ? h(
-              "button",
-              {
-                className: "btn btn-primary",
-                onClick: function () { if (history) history.push(BASE + "/performer/" + performerId); }
-              },
-              "Review results"
-            )
-          : null,
-        h(
-          "button",
-          {
-            className: reviewing ? "btn btn-secondary" : "btn btn-primary",
-            disabled: starter.busy || (run && run.status === "RUNNING"),
-            onClick: function () { starter.start(Number(performerId), false); }
-          },
-          run && run.status === "RUNNING"
-            ? "Running..."
-            : reviewing
-            ? "Rescan (Fast)"
-            : "⚡ Run Fast Performer Discovery"
-        ),
-        run && run.status === "RUNNING" && run.job_id
-          ? h(
-              "button",
-              {
-                className: "btn btn-secondary",
-                onClick: function () {
-                  callOp("performer.run_cancel", { run_id: run.id }).then(status.reload);
-                }
-              },
-              "Cancel"
-            )
-          : null
-      ),
-      reviewing ? h(PerformerReviewPage, { performerId: performerId }) : null,
-      h(ConfirmRescan, { confirming: starter.confirming, onCancel: starter.cancelConfirm,
-                        onConfirm: starter.confirmReplace }),
-      (status.data.history || []).length
-        ? h(
-            "div",
-            { className: "fd-history" },
-            h("h5", null, "History"),
-            status.data.history.map(function (entry) {
-              return h(
-                "div",
-                { key: entry.id, className: "fd-muted" },
-                when(entry.applied_at) + " · " + entry.status +
-                  ((entry.fields || []).length ? " · " + entry.fields.join(", ") : "")
-              );
-            })
-          )
-        : null
     );
   }
 
@@ -3029,9 +2954,12 @@
   }
 
   attachAfter("PerformerDetailsPanel", "after", function (props) {
+    // Deliberately just the button and its status - not the review, not history:
+    // those live on the FastDiscovery Performers page and its review route, one
+    // click away once there is something to review.
     var performer = performerOf(props);
-    return performer ? h(PerformerPanel, { key: "fd-performer-panel",
-                                          performerId: performer.id }) : null;
+    return performer ? h("div", { key: "fd-performer-panel", className: "fd-panel" },
+      h(FastDiscoveryPerformerButton, { performer: performer, showStatus: true })) : null;
   });
 
   attachAfter("CompressedPerformerDetailsPanel", "after", function (props) {

@@ -630,36 +630,26 @@ def op_performer_run_cancel(context, args):
 
 
 def op_performer_scrapers(context, args):
-    """Installed performer-name scrapers *and* configured stash-boxes, together, for
-    the settings page's multi-select.
+    """Installed performer-name scrapers, for the settings page's multi-select.
+
+    Stash-boxes are deliberately not in this list: they are never a pick, they are
+    always asked first, for every run, the same way scene discovery always asks
+    every configured box (`performer_discovery.PerformerRunner.
+    _run_name_and_box_waves`). This is scraper choices only.
 
     Never a hardcoded list (requirement 23): read fresh from Stash every time the
-    settings page loads, so a scraper installed or removed - or a stash-box added or
-    removed in Settings -> Metadata Providers - since is reflected without touching
-    this plugin's own settings. A stash-box is listed under the id
-    `registry.STASHBOX_PREFIX + endpoint`, which is exactly what
-    `performer_discovery.PerformerRunner.fast_choices` expects back.
+    settings page loads, so a scraper installed or removed since is reflected
+    without touching this plugin's own settings.
     """
     from . import registry as registry_module
     scrapers = registry_module.from_list_scrapers(
         context.client.list_performer_scrapers(), content_key="performer")
-    out = [{"id": entry["id"], "name": entry["name"], "kinds": entry["kinds"],
-           "kind": "scraper"} for entry in scrapers]
-    for box in context.client.stash_boxes():
-        if not box.get("endpoint"):
-            continue
-        out.append({"id": registry_module.STASHBOX_PREFIX + box["endpoint"],
-                    "name": box.get("name") or box["endpoint"], "kinds": ["NAME"],
-                    "kind": "stashbox"})
-    return {"scrapers": out}
+    return {"scrapers": [{"id": entry["id"], "name": entry["name"],
+                          "kinds": entry["kinds"]} for entry in scrapers]}
 
 
 def _fast_scraper_ids(context):
-    import json
-    try:
-        return json.loads(context.config["performerFastScrapers"] or "[]")
-    except ValueError:
-        return []
+    return settings.parse_choice_list(context.config["performerFastScrapers"])
 
 
 # ------------------------------------------------------- the scraper entry point
@@ -713,11 +703,12 @@ def op_scraper_entry(context, args):
 
 def op_maintenance(context, args):
     swept = context.repo.sweep_stale_runs(context.config["staleRunHours"])
+    dead_ends = context.repo.purge_finished_dead_end_runs()
     orphans = context.repo.purge_orphan_images()
     if args.get("vacuum"):
         context.repo.vacuum()
-    return {"stale_runs_failed": swept, "orphan_images_removed": orphans,
-            "vacuumed": bool(args.get("vacuum"))}
+    return {"stale_runs_failed": swept, "dead_end_runs_purged": dead_ends,
+            "orphan_images_removed": orphans, "vacuumed": bool(args.get("vacuum"))}
 
 
 # ------------------------------------------------------------------ helpers
