@@ -4,7 +4,10 @@ description: >-
   results and the scene already carry through every scraper that can read them, and
   puts all of the answers side by side in one review table. Nothing is written to the
   scene until you press Apply, and the results are deleted the moment you decide.
-version: 0.2.9
+  Also does the same for performers: every performer-name scraper you pick (Fast), or
+  every installed one (Full), each result kept as its own column, URLs followed the
+  same way, reviewed the same way.
+version: 0.3.0
 url: https://github.com/nafanyka/stash
 
 exec:
@@ -33,6 +36,15 @@ tasks:
       selection in the scene list; running it here without scene ids does nothing.
     defaultArgs:
       task: Discover scenes
+
+  - name: Discover performers
+    description: >-
+      Discover the performers given in the arguments (Fast), or top up one existing
+      result with every installed scraper Fast did not use (Full - pass run_id and
+      mode: FULL). Started from the Fast Discovery button on a performer's page/card,
+      or from the FastDiscovery Performers tab; running it here directly does nothing.
+    defaultArgs:
+      task: Discover performers
 
   - name: Maintenance
     description: >-
@@ -134,3 +146,21 @@ settings:
       Log every source's input, timing and returned field counts. Never logs
       credentials and never dumps a full payload.
     type: BOOLEAN
+  performerFastScrapers:
+    displayName: Fast performer scrapers
+    description: >-
+      JSON array of performer-name-scraper ids to run for Fast performer discovery.
+      Edit this from the FastDiscovery settings page, which offers a multi-select
+      built from the performer scrapers actually installed - not from here directly.
+    type: STRING
+  performerMaxUrlDepth:
+    displayName: Max performer URL discovery depth
+    description: >-
+      How far to follow URLs discovered from a performer's scraped results. Default 3.
+    type: NUMBER
+  performerImagePreviewWidth:
+    displayName: Performer image preview width
+    description: >-
+      Width, in pixels, of a result's preview image in the performer review header
+      and of thumbnails in the image gallery. Default 180.
+    type: NUMBER

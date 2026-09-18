@@ -43,6 +43,22 @@ SCRAPERS = [
      "scene": {"urls": ["shared.com"], "supported_scrapes": ["URL"]}},
 ]
 
+PERFORMER_SCRAPERS = [
+    {"id": "Babepedia", "name": "Babepedia",
+     "performer": {"urls": ["babepedia.com"], "supported_scrapes": ["NAME", "URL"]}},
+    {"id": "IAFD", "name": "IAFD",
+     "performer": {"urls": ["iafd.com"], "supported_scrapes": ["NAME", "URL"]}},
+    {"id": "StashDB", "name": "StashDB",
+     "performer": {"urls": [], "supported_scrapes": ["NAME"]}},
+    {"id": "PerfSiteA", "name": "Perf Site A",
+     "performer": {"urls": ["perfa.com"], "supported_scrapes": ["URL"]}},
+    # Two scrapers claiming the same host, for the ambiguous-URL case on performers.
+    {"id": "PerfSharedOne", "name": "Perf Shared One",
+     "performer": {"urls": ["pshared.com"], "supported_scrapes": ["URL", "FRAGMENT"]}},
+    {"id": "PerfSharedTwo", "name": "Perf Shared Two",
+     "performer": {"urls": ["pshared.com"], "supported_scrapes": ["URL"]}},
+]
+
 
 class FakeStash:
     """A Stash server that answers from canned data.
@@ -53,7 +69,7 @@ class FakeStash:
     """
 
     def __init__(self, scene=None, scrapers=None, boxes=None, responses=None,
-                 entities=None):
+                 entities=None, performer=None, performer_scrapers=None):
         self.scene = scene or {}
         self.scrapers = scrapers if scrapers is not None else SCRAPERS
         self.boxes = boxes if boxes is not None else BOXES
@@ -63,6 +79,11 @@ class FakeStash:
         self.updates = []
         self.created = []
         self.settings = {}
+        self.performer = performer or {}
+        self.performer_scrapers = (performer_scrapers if performer_scrapers is not None
+                                   else PERFORMER_SCRAPERS)
+        self.performer_updates = []
+        self.organized_calls = []
 
     # -- reads
 
@@ -121,6 +142,42 @@ class FakeStash:
         if value is None:
             return []
         return value if isinstance(value, list) else [value]
+
+    # -- performers
+
+    def list_performer_scrapers(self):
+        return list(self.performer_scrapers)
+
+    def find_performer(self, performer_id):
+        if str((self.performer or {}).get("id")) != str(performer_id):
+            return None
+        return self.performer
+
+    def find_performers_brief(self, performer_ids):
+        wanted = {str(one) for one in (performer_ids or [])}
+        return [self.performer] if str((self.performer or {}).get("id")) in wanted else []
+
+    def scrape_single_performer(self, source, scrape_input, selection, timeout=None):
+        scraper_id = source.get("scraper_id")
+        if "query" in scrape_input:
+            key = "pname:%s:%s" % (scraper_id, scrape_input["query"])
+        else:
+            urls = (scrape_input.get("performer_input") or {}).get("urls") or [None]
+            key = "pfrag:%s:%s" % (scraper_id, urls[0])
+        self.calls.append(("scrape_single_performer", key, timeout))
+        return self._answer(key)
+
+    def scrape_performer_url(self, url, selection, timeout=None):
+        self.calls.append(("scrape_performer_url", url, timeout))
+        return self._answer("purl:" + str(url))
+
+    def performer_update(self, values):
+        self.performer_updates.append(values)
+        return {"id": values.get("id"), "updated_at": "2026-01-01T00:00:00Z"}
+
+    def set_performer_organized(self, performer_id, organized=True):
+        self.organized_calls.append((str(performer_id), bool(organized)))
+        return {"id": str(performer_id), "custom_fields": {"organized": organized}}
 
     # -- entity lookup and creation
 
@@ -201,6 +258,18 @@ def scraped(**values):
                                for one in value]
         elif key == "studio":
             payload["studio"] = value if isinstance(value, dict) else {"name": value}
+        else:
+            payload[key] = value
+    return payload
+
+
+def scraped_performer(**values):
+    """A ScrapedPerformer payload with only the fields a test cares about."""
+    payload = {}
+    for key, value in values.items():
+        if key == "tags":
+            payload["tags"] = [one if isinstance(one, dict) else {"name": one}
+                               for one in value]
         else:
             payload[key] = value
     return payload

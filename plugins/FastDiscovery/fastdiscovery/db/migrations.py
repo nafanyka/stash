@@ -187,7 +187,53 @@ _REJECTED_COLUMNS = [
     "ALTER TABLE runs ADD COLUMN rejected_columns_json TEXT",
 ]
 
-MIGRATIONS = [_INITIAL, _REJECTED_SOURCES, _REJECTED_COLUMNS]
+# 4 - performers, sharing this engine and this file rather than a second database.
+#
+# `entity_type` distinguishes a scene run from a performer run. The column that has
+# always held a scene id (`scene_id`, on `runs` and `applications`) is kept exactly as
+# it is - renaming a NOT NULL column every existing row and every existing query
+# depends on is a needless risk - and is simply read as "the id of whatever
+# `entity_type` says" from here on; `Repo._run_row` exposes it under both names so
+# scene code that already reads `run["scene_id"]` needs no change at all, and new
+# code reads `run["entity_id"]`/`run["entity_type"]`. Every existing row defaults to
+# `entity_type = 'scene'`, so nothing already stored changes meaning.
+#
+# Without this, a performer id and a scene id that happen to share a number would
+# collide in `latest_run`/`applications_for` and hand back the wrong run - a
+# correctness bug, not a cosmetic one - so the type is part of every lookup key from
+# here on, not an afterthought filtered in Python.
+#
+# `mode` records whether a performer run has only gone through the scrapers the user
+# picked for Fast, or has since been topped up with Full (requirement 26). Harmless
+# and unused on a scene run.
+#
+# `result_images` is the one real structural gap: a `ScrapedPerformer` can carry
+# several photos (`images: [String!]`), where a `ScrapedScene` carries exactly one
+# (`image: String`). Rather than reshape `results.image_url`/`image_sha256` - which
+# every scene code path reads today - performer images go in a new child table, one
+# row per photo, and scene results are untouched. `images` (the content-addressed
+# blob table) already has no notion of "scene" or "performer" in it at all, so it is
+# shared unchanged by both.
+_PERFORMERS = [
+    "ALTER TABLE runs ADD COLUMN entity_type TEXT NOT NULL DEFAULT 'scene'",
+    "ALTER TABLE runs ADD COLUMN mode TEXT NOT NULL DEFAULT 'FAST'",
+    "ALTER TABLE applications ADD COLUMN entity_type TEXT NOT NULL DEFAULT 'scene'",
+    "CREATE INDEX idx_runs_entity ON runs(entity_type, scene_id, started_at DESC)",
+    "CREATE INDEX idx_applications_entity"
+    " ON applications(entity_type, scene_id, applied_at DESC)",
+    """
+    CREATE TABLE result_images (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        result_id    INTEGER NOT NULL REFERENCES results(id) ON DELETE CASCADE,
+        ordinal      INTEGER NOT NULL DEFAULT 0,
+        image_url    TEXT,
+        image_sha256 TEXT
+    )
+    """,
+    "CREATE INDEX idx_result_images_result ON result_images(result_id, ordinal)",
+]
+
+MIGRATIONS = [_INITIAL, _REJECTED_SOURCES, _REJECTED_COLUMNS, _PERFORMERS]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

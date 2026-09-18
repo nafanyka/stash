@@ -89,6 +89,23 @@ def _spec():
             BOOLEAN, False,
             "Log every source's input, timing and returned field counts. Never logs "
             "credentials, and never dumps a full payload."),
+        "performerFastScrapers": (
+            STRING, "[]",
+            "JSON array of performer-name-scraper ids to run for Fast performer "
+            "discovery. Edited from the FastDiscovery settings page, which offers a "
+            "multi-select built from the performer scrapers Stash actually has "
+            "installed - never a hardcoded list. Full performer discovery runs every "
+            "installed performer-name scraper not in this set."),
+        "performerMaxUrlDepth": (
+            NUMBER, 3,
+            "How far to follow URLs discovered from a performer's scraped results. "
+            "Separate from the scene setting: a performer's URL graph is usually much "
+            "smaller."),
+        "performerImagePreviewWidth": (
+            NUMBER, 180,
+            "Width, in pixels, of a result's preview image in the performer review "
+            "header and of thumbnails in the image gallery. Height follows "
+            "automatically, so the picture is never distorted."),
     }
 
 

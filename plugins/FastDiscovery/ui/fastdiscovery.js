@@ -691,13 +691,22 @@
 
     var sized = cx("fd-thumb",
                    props.size === "small" && "fd-thumb-small",
-                   props.size === "gallery" && "fd-thumb-gallery");
+                   props.size === "gallery" && "fd-thumb-gallery",
+                   props.size === "header" && "fd-thumb-header");
+    // `width` is the one override the performer image preview setting needs: a fixed
+    // pixel width, height following automatically so nothing is distorted
+    // (requirement 11). Scene call sites never pass it, so their sizing - the
+    // percentage/max-height rules in the CSS - is completely unaffected.
+    var style = props.width
+      ? { width: props.width + "px", maxWidth: props.width + "px", height: "auto" }
+      : undefined;
     // The placeholders carry the size classes too, so a cell does not change width
     // when its picture arrives.
-    if (failed[0]) return h("div", { className: cx(sized, "fd-thumb-missing") }, "no preview");
-    if (!loaded[0]) return h("div", { className: cx(sized, "fd-thumb-loading") }, "");
+    if (failed[0]) return h("div", { className: cx(sized, "fd-thumb-missing"), style: style }, "no preview");
+    if (!loaded[0]) return h("div", { className: cx(sized, "fd-thumb-loading"), style: style }, "");
     return h("img", {
       className: sized,
+      style: style,
       src: loaded[0],
       alt: "",
       loading: "lazy",
@@ -729,7 +738,7 @@
         "div",
         { className: "fd-image-strip" },
         h("button", { className: "btn btn-sm btn-secondary", onClick: function () { step(-1); } }, "‹"),
-        current ? h(Thumbnail, { candidate: current }) : null,
+        current ? h(Thumbnail, { candidate: current, width: props.thumbWidth }) : null,
         h("button", { className: "btn btn-sm btn-secondary", onClick: function () { step(1); } }, "›")
       ),
       h(
@@ -781,7 +790,7 @@
                       checked: chosen === candidate.id,
                       onChange: function () { props.onPick(candidate.id); }
                     }),
-                    h(Thumbnail, { candidate: candidate, size: "gallery" }),
+                    h(Thumbnail, { candidate: candidate, size: "gallery", width: props.thumbWidth }),
                     h(
                       "span",
                       { className: "fd-gallery-label" },
@@ -814,6 +823,15 @@
     var selection = props.selection;
     var expanded = React.useState({});
     var onReject = props.onReject;
+    // Optional: a performer review passes its image row here so each column header
+    // carries the result's first photo, for telling the right person from the wrong
+    // one at a glance (requirement 10). Scene reviews never pass this, so a scene's
+    // header is rendered exactly as before.
+    var previewRow = props.headerPreview;
+    var previewById = {};
+    if (previewRow) {
+      previewRow.values.forEach(function (value) { previewById[value.id] = value; });
+    }
 
     return h(
       "div",
@@ -846,6 +864,13 @@
                   ? h("div", { className: "fd-th-sub" }, shortUrl(column.url))
                   : column.endpoint
                   ? h("div", { className: "fd-th-sub" }, shortUrl(column.endpoint))
+                  : null,
+                previewRow && column.id !== "current" && previewById[previewRow.cells[column.id]]
+                  ? h(Thumbnail, {
+                      candidate: previewById[previewRow.cells[column.id]],
+                      size: "header",
+                      width: props.thumbWidth
+                    })
                   : null,
                 // One result of one source. A source that answered with a list has a
                 // column per answer, and the second can be a different scene entirely
@@ -1462,6 +1487,7 @@
           )
         )
       ),
+      h(EntityKindSwitch, { active: "scene" }),
       h(
         "div",
         { className: "fd-tabs" },
@@ -1635,6 +1661,48 @@
 
   /* ------------------------------------------------------------- settings page */
 
+  function PerformerScraperMultiSelect(props) {
+    // Never a hardcoded list (requirement 23): built from the performer scrapers
+    // Stash actually has installed right now, fetched fresh every time this page
+    // loads. A previously-picked id that has since been removed still shows in the
+    // saved value until unticked, but is otherwise silently ignored at run time
+    // (performer_discovery.PerformerRunner.fast_scraper_ids), so a stale pick here
+    // cannot fail a run.
+    var available = useOp("performer.scrapers", {});
+    var picked = [];
+    try { picked = JSON.parse(props.value || "[]"); } catch (error) { picked = []; }
+    if (!Array.isArray(picked)) picked = [];
+
+    function toggle(id) {
+      var next = picked.indexOf(id) >= 0
+        ? picked.filter(function (one) { return one !== id; })
+        : picked.concat([id]);
+      props.onChange(JSON.stringify(next));
+    }
+
+    if (available.loading && !available.data) return h(Loading, { label: "Loading installed performer scrapers..." });
+    if (available.error) return h(Problem, { error: available.error, onRetry: available.reload });
+    var scrapers = (available.data && available.data.scrapers) || [];
+    if (!scrapers.length) {
+      return h("div", { className: "fd-muted" },
+                "No performer-name scrapers are installed. Install one under Settings -> " +
+                  "Metadata Providers, then come back here.");
+    }
+    return h(
+      "div",
+      { className: "fd-scraper-picklist" },
+      scrapers.map(function (entry) {
+        var on = picked.indexOf(entry.id) >= 0;
+        return h(
+          "label",
+          { key: entry.id, className: cx("fd-pick", on && "fd-pick-on") },
+          h("input", { type: "checkbox", checked: on, onChange: function () { toggle(entry.id); } }),
+          h("span", null, entry.name)
+        );
+      })
+    );
+  }
+
   function SettingsPage() {
     var loaded = useOp("settings.get", {});
     var draft = React.useState(null);
@@ -1711,6 +1779,7 @@
             updated[entry.name] = next;
             draft[1](updated);
           }
+          var isScraperPicklist = entry.name === "performerFastScrapers";
           return h(
             "div",
             { key: entry.name, className: "fd-setting" },
@@ -1724,9 +1793,12 @@
                     onChange: function (event) { change(event.target.checked); }
                   })
                 : null,
-              h("span", { className: "fd-setting-name" }, entry.name)
+              h("span", { className: "fd-setting-name" },
+                isScraperPicklist ? "Fast performer scrapers" : entry.name)
             ),
-            entry.type !== "BOOLEAN"
+            isScraperPicklist
+              ? h(PerformerScraperMultiSelect, { value: value, onChange: change })
+              : entry.type !== "BOOLEAN"
               ? h("input", {
                   className: "form-control fd-setting-input",
                   type: entry.type === "NUMBER" ? "number" : "text",
@@ -1917,11 +1989,784 @@
     return h("span", { className: "fd-tab-badge" }, run.result_count);
   }
 
+  /* ============================================================== performers ===
+   *
+   * Everything below is the performer counterpart of the scene pages above. It
+   * reuses every generic piece as-is - MergeTable, ValueCell, Thumbnail, ImagePicker,
+   * ListEditor, RejectToggle, SourceList, StatusPill, Loading, Problem, useOp,
+   * callOp, useToaster, ConfirmRescan - and adds only what a performer review
+   * genuinely needs on top: Organize, Full discovery, and a header photo per column.
+   * New pages rather than branches inside the scene ones, so a bug here cannot reach
+   * a scene review and the other way around.
+   */
+
+  function EntityKindSwitch(props) {
+    return h(
+      "div",
+      { className: "fd-kind-switch" },
+      h(
+        Router.NavLink,
+        { className: cx("btn btn-sm", props.active === "scene" ? "btn-primary" : "btn-secondary"),
+          to: BASE, exact: true },
+        "Scenes"
+      ),
+      h(
+        Router.NavLink,
+        { className: cx("btn btn-sm", props.active === "performer" ? "btn-primary" : "btn-secondary"),
+          to: BASE + "/performers" },
+        "Performers"
+      )
+    );
+  }
+
+  var PERFORMER_PER_PAGE_KEY = "fastdiscovery.performerPerPage";
+
+  function loadPerformerPerPage() {
+    try {
+      var stored = Number(window.localStorage.getItem(PERFORMER_PER_PAGE_KEY));
+      return PER_PAGE_CHOICES.indexOf(stored) >= 0 ? stored : PER_PAGE_DEFAULT;
+    } catch (error) {
+      return PER_PAGE_DEFAULT;
+    }
+  }
+
+  function savePerformerPerPage(value) {
+    try {
+      window.localStorage.setItem(PERFORMER_PER_PAGE_KEY, String(value));
+    } catch (error) { /* not remembered; harmless */ }
+  }
+
+  // Starting a Fast run for one performer. Deliberately its own hook rather than a
+  // shape squeezed into `useRunStarter`: that one always sends a list of scene ids,
+  // and a performer run is always exactly one performer (requirement 2 - the button
+  // starts discovery for *this* performer, nothing else).
+  function usePerformerRunStarter(onStarted) {
+    var busy = React.useState(false);
+    var error = React.useState(null);
+    var confirm = React.useState(null);
+
+    function start(performerId, replace) {
+      busy[1](true);
+      error[1](null);
+      return callOp("performer.discover", {
+        performer_id: performerId,
+        replace: !!replace,
+        trigger: "ui"
+      }).then(
+        function (data) {
+          busy[1](false);
+          if (data.needs_confirmation) {
+            confirm[1]({ performerId: performerId, blocked: data.blocked || [],
+                        message: data.error });
+            return null;
+          }
+          confirm[1](null);
+          announceChange();
+          if (onStarted) onStarted(data);
+          return data;
+        },
+        function (failure) {
+          busy[1](false);
+          error[1](failure.message);
+          return null;
+        }
+      );
+    }
+
+    return {
+      busy: busy[0], error: error[0], confirming: confirm[0], start: start,
+      cancelConfirm: function () { confirm[1](null); },
+      confirmReplace: function () {
+        var pending = confirm[0];
+        confirm[1](null);
+        if (pending) return start(pending.performerId, true);
+        return Promise.resolve(null);
+      }
+    };
+  }
+
+  /* ------------------------------------------------------------ performer runs */
+
+  function PerformerRunsPage() {
+    var tab = React.useState("ready");
+    var page = React.useState(1);
+    var perPage = React.useState(loadPerformerPerPage);
+    var listing = useOp("performer.run_list",
+                        { tab: tab[0], page: page[0], per_page: perPage[0] });
+    var deciding = React.useState(null);
+    var toaster = useToaster();
+
+    React.useEffect(
+      function () {
+        window.addEventListener(CHANGED_EVENT, listing.reload);
+        return function () { window.removeEventListener(CHANGED_EVENT, listing.reload); };
+      },
+      [listing.reload]
+    );
+
+    function rejectRun(run) {
+      deciding[1](run.id);
+      callOp("performer.reject", { run_id: run.id }).then(
+        function () {
+          deciding[1](null);
+          toaster.success("Results rejected. The performer was not touched.");
+          announceChange();
+        },
+        function (failure) { deciding[1](null); toaster.failure(failure.message); }
+      );
+    }
+
+    function runFull(run) {
+      deciding[1](run.id);
+      callOp("performer.full", { run_id: run.id }).then(
+        function () {
+          deciding[1](null);
+          toaster.success("Full performer discovery queued.");
+          announceChange();
+          listing.reload();
+        },
+        function (failure) { deciding[1](null); toaster.failure(failure.message); }
+      );
+    }
+
+    function choosePerPage(value) {
+      savePerformerPerPage(value);
+      perPage[1](value);
+      page[1](1);
+    }
+
+    return h(
+      "div",
+      { className: "fd-page" },
+      h(
+        "div",
+        { className: "fd-review-head" },
+        h("h2", null, "FastDiscovery"),
+        h(
+          "div",
+          { className: "fd-actions" },
+          h("button", { className: "btn btn-secondary", onClick: listing.reload }, "Refresh"),
+          h(Router.NavLink, { className: "btn btn-secondary", to: BASE + "/settings" }, "Settings")
+        )
+      ),
+      h(EntityKindSwitch, { active: "performer" }),
+      h(
+        "div",
+        { className: "fd-tabs" },
+        TABS.map(function (entry) {
+          var counts = (listing.data && listing.data.counts) || {};
+          var total = entry.key === "all"
+            ? Object.keys(counts).reduce(function (sum, key) { return sum + counts[key]; }, 0)
+            : null;
+          return h(
+            "button",
+            {
+              key: entry.key,
+              className: cx("btn btn-sm", tab[0] === entry.key ? "btn-primary" : "btn-secondary"),
+              onClick: function () { tab[1](entry.key); page[1](1); }
+            },
+            entry.label,
+            total !== null ? h("span", { className: "fd-badge" }, total) : null
+          );
+        }),
+        h(
+          "label",
+          { className: "fd-per-page" },
+          "Show",
+          h(
+            "select",
+            {
+              className: "form-control input-sm",
+              value: perPage[0],
+              onChange: function (event) { choosePerPage(Number(event.target.value)); }
+            },
+            PER_PAGE_CHOICES.map(function (size) {
+              return h("option", { key: size, value: size }, size);
+            })
+          )
+        )
+      ),
+      h(Problem, { error: listing.error, onRetry: listing.reload }),
+      listing.loading && !listing.data ? h(Loading, null) : null,
+      listing.data
+        ? h(
+            "table",
+            { className: "fd-runs" },
+            h(
+              "thead",
+              null,
+              h(
+                "tr",
+                null,
+                ["Performer", "Mode", "Status", "Sources", "URLs", "Results", "Started",
+                 "Finished", ""].map(function (label, index) {
+                  return h("th", { key: index }, label);
+                })
+              )
+            ),
+            h(
+              "tbody",
+              null,
+              listing.data.runs.map(function (run) {
+                var performer = run.performer || {};
+                return h(
+                  "tr",
+                  { key: run.id },
+                  h(
+                    "td",
+                    null,
+                    h(
+                      Router.NavLink,
+                      { to: "/performers/" + run.scene_id },
+                      performer.name || "performer " + run.scene_id
+                    ),
+                    performer.disambiguation
+                      ? h("div", { className: "fd-muted" }, performer.disambiguation)
+                      : null
+                  ),
+                  h("td", null, run.mode || "FAST"),
+                  h(
+                    "td",
+                    null,
+                    h(StatusPill, { status: run.status }),
+                    run.error_count
+                      ? h("div", { className: "fd-muted" }, run.error_count + " error(s)")
+                      : null
+                  ),
+                  h("td", null, run.ok_source_count + " / " + run.source_count),
+                  h("td", null, run.url_count),
+                  h("td", null, run.result_count),
+                  h("td", null, when(run.started_at)),
+                  h("td", null, when(run.finished_at)),
+                  h(
+                    "td",
+                    { className: "fd-row-actions" },
+                    run.reviewable
+                      ? h(
+                          Router.NavLink,
+                          { className: "btn btn-sm btn-primary",
+                            to: BASE + "/performer/" + run.scene_id },
+                          "Review"
+                        )
+                      : null,
+                    run.reviewable && run.mode !== "FULL"
+                      ? h(
+                          "button",
+                          {
+                            className: "btn btn-sm btn-secondary",
+                            disabled: deciding[0] === run.id,
+                            title: "Try every installed performer scraper Fast did not use.",
+                            onClick: function () { runFull(run); }
+                          },
+                          "Full"
+                        )
+                      : null,
+                    run.reviewable
+                      ? h(
+                          "button",
+                          {
+                            className: "btn btn-sm btn-secondary",
+                            disabled: deciding[0] === run.id,
+                            title: "Discard this discovery result. The performer is not touched.",
+                            onClick: function () { rejectRun(run); }
+                          },
+                          deciding[0] === run.id ? "..." : "Cancel"
+                        )
+                      : null,
+                    !run.reviewable && !run.purged
+                      ? h(
+                          "button",
+                          {
+                            className: "btn btn-sm btn-secondary",
+                            disabled: deciding[0] === run.id,
+                            onClick: function () {
+                              deciding[1](run.id);
+                              callOp("performer.run_delete", { run_id: run.id }).then(
+                                function () { deciding[1](null); announceChange(); },
+                                function (failure) {
+                                  deciding[1](null);
+                                  toaster.failure(failure.message);
+                                }
+                              );
+                            }
+                          },
+                          "Dismiss"
+                        )
+                      : null
+                  )
+                );
+              })
+            )
+          )
+        : null,
+      listing.data && !listing.data.runs.length
+        ? h("div", { className: "fd-empty" }, "Nothing here.")
+        : null,
+      listing.data && listing.data.total > perPage[0]
+        ? h(
+            "div",
+            { className: "fd-paging" },
+            h(
+              "button",
+              { className: "btn btn-sm btn-secondary", disabled: page[0] <= 1,
+                onClick: function () { page[1](page[0] - 1); } },
+              "Previous"
+            ),
+            h(
+              "span",
+              null,
+              " page " + page[0] + " of " + Math.ceil(listing.data.total / perPage[0]) + " "
+            ),
+            h(
+              "button",
+              { className: "btn btn-sm btn-secondary",
+                disabled: page[0] * perPage[0] >= listing.data.total,
+                onClick: function () { page[1](page[0] + 1); } },
+              "Next"
+            )
+          )
+        : null
+    );
+  }
+
+  /* --------------------------------------------------------- performer review */
+
+  function PerformerReviewPage(props) {
+    var params = Router.useParams();
+    var history = Router.useHistory ? Router.useHistory() : null;
+    var performerId = props.performerId || (params && params.id);
+    var review = useOp("performer.review_get", { performer_id: Number(performerId) });
+    var selection = React.useState(null);
+    var organize = React.useState(false);
+    var busy = React.useState(null);
+    var problem = React.useState(null);
+    var decided = React.useState(null);
+    var toaster = useToaster();
+    var starter = usePerformerRunStarter(function () {
+      toaster.success("Fast performer scraping queued. This page updates when it finishes.");
+      decided[1](null);
+      review.reload();
+    });
+
+    React.useEffect(
+      function () {
+        if (review.data && review.data.selection) {
+          selection[1](JSON.parse(JSON.stringify(review.data.selection)));
+        }
+      },
+      [review.data]
+    );
+
+    React.useEffect(
+      function () {
+        if (!review.data || !selection[0]) return undefined;
+        var runId = review.data.run.id;
+        var payload = selection[0];
+        var timer = setTimeout(function () {
+          callOp("performer.review_save", { run_id: runId, selection: payload }).catch(function () {});
+        }, 1500);
+        return function () { clearTimeout(timer); };
+      },
+      [selection[0]]
+    );
+
+    // Poll while Full discovery is going, exactly like the scene tab's own panel -
+    // the review stays open, showing whatever Fast already found, and refreshes once
+    // Full has added to it.
+    React.useEffect(
+      function () {
+        var run = review.data && review.data.run;
+        if (!run || run.status !== "RUNNING") return undefined;
+        var timer = setInterval(review.reload, 4000);
+        return function () { clearInterval(timer); };
+      },
+      [review.data]
+    );
+
+    if (decided[0]) {
+      return h(Decided, {
+        outcome: decided[0],
+        onRescan: function () { starter.start(Number(performerId), true); },
+        showBack: !props.performerId,
+        busy: starter.busy,
+        confirming: starter.confirming,
+        onCancelConfirm: starter.cancelConfirm,
+        onConfirmReplace: starter.confirmReplace
+      });
+    }
+    if (review.loading && !review.data) return h(Loading, { label: "Building the review..." });
+    if (review.error) {
+      return h(
+        "div",
+        { className: "fd-page" },
+        h(Problem, { error: review.error, onRetry: review.reload }),
+        h(
+          "button",
+          { className: "btn btn-primary", disabled: starter.busy,
+            onClick: function () { starter.start(Number(performerId), false); } },
+          "Run Fast Performer Discovery"
+        ),
+        h(ConfirmRescan, { confirming: starter.confirming, onCancel: starter.cancelConfirm,
+                          onConfirm: starter.confirmReplace })
+      );
+    }
+    if (!review.data || !selection[0]) return h(Loading, null);
+
+    var data = review.data;
+    var imageRow = data.rows.filter(function (one) { return one.kind === "image"; })[0];
+    var thumbWidth = Number(data.image_preview_width) || 180;
+
+    function pick(field, id) {
+      var next = Object.assign({}, selection[0]);
+      next[field] = next[field] === id ? null : id;
+      selection[1](next);
+    }
+
+    function toggle(field, id) {
+      var next = Object.assign({}, selection[0]);
+      var list = (next[field] || []).slice();
+      var at = list.indexOf(id);
+      if (at >= 0) {
+        list.splice(at, 1);
+      } else {
+        list.push(id);
+      }
+      next[field] = list;
+      selection[1](next);
+    }
+
+    function rejectColumn(column, rejected) {
+      busy[1]("reject");
+      problem[1](null);
+      callOp("performer.reject_column", {
+        run_id: data.run.id, column_id: column.id, rejected: rejected
+      }).then(
+        function (fresh) {
+          busy[1](null);
+          review.replace(fresh);
+          selection[1](JSON.parse(JSON.stringify(fresh.selection || {})));
+          toaster.success(
+            (rejected ? "Rejected " : "Restored ") + column.name +
+              (rejected ? " - nothing it said is counted." : " - its values are back.")
+          );
+        },
+        function (failure) { busy[1](null); problem[1](failure.message); toaster.failure(failure.message); }
+      );
+    }
+
+    function runFull() {
+      busy[1]("full");
+      problem[1](null);
+      callOp("performer.full", { run_id: data.run.id }).then(
+        function () {
+          busy[1](null);
+          toaster.success("Full performer discovery queued. This page updates when it finishes.");
+          review.reload();
+        },
+        function (failure) { busy[1](null); problem[1](failure.message); toaster.failure(failure.message); }
+      );
+    }
+
+    function decide(op, extra) {
+      busy[1](op);
+      problem[1](null);
+      callOp(op, Object.assign({ run_id: data.run.id }, extra || {})).then(
+        function (result) {
+          busy[1](null);
+          if (op === "performer.apply_commit" && !result.applied) {
+            toaster.success(result.reason || "Nothing needed writing.");
+            return;
+          }
+          var message =
+            op === "performer.apply_commit"
+              ? "FastDiscovery applied " + (result.changes || []).length +
+                " field(s) to this performer." +
+                (result.organized ? " Marked Organized." : "")
+              : "FastDiscovery results rejected. The performer was not touched.";
+          toaster.success(message);
+          announceChange();
+          if (history && !props.performerId) {
+            history.push(BASE + "/performers");
+            return;
+          }
+          decided[1]({
+            action: op === "performer.apply_commit" ? "applied" : "rejected",
+            message: message,
+            changes: result.changes || [],
+            created: result.created || {},
+            linked: result.linked || {},
+            marker: result.organized ? { name: "Organized" } : null
+          });
+        },
+        function (failure) { busy[1](null); problem[1](failure.message); toaster.failure(failure.message); }
+      );
+    }
+
+    return h(
+      "div",
+      { className: "fd-page fd-review fd-performer-review" },
+      h(
+        "div",
+        { className: "fd-review-head" },
+        h(
+          "div",
+          { className: "fd-scene-head" },
+          props.performerId ? null : h("div", { className: "fd-kicker" }, "FastDiscovery"),
+          h(
+            "h2",
+            null,
+            h(
+              "a",
+              { href: "/performers/" + data.performer.id, target: "_blank",
+                rel: "noopener noreferrer", title: "Open this performer in a new tab" },
+              data.performer.name
+            )
+          ),
+          h(
+            "div",
+            { className: "fd-muted" },
+            h(StatusPill, { status: data.run.status }),
+            " · " + (data.run.mode || "FAST"),
+            " · ",
+            data.summary.columns + " column(s) from " + data.summary.sources + " source(s)",
+            data.summary.failed_sources ? " · " + data.summary.failed_sources + " failed" : "",
+            " · " + data.summary.urls + " URL(s)"
+          )
+        ),
+        props.performerId
+          ? null
+          : h(
+              "div",
+              { className: "fd-actions" },
+              h(Router.NavLink, { className: "btn btn-link", to: BASE + "/performers" }, "All performers")
+            )
+      ),
+      h(Problem, { error: problem[0] || starter.error }),
+      data.run.stop_reason
+        ? h("div", { className: "fd-note" }, "Stopped early: " + data.run.stop_reason)
+        : null,
+      data.run.reviewable && data.run.mode !== "FULL"
+        ? h(
+            "div", { className: "fd-note" },
+            "Fast discovery only used the scrapers picked in settings. ",
+            h(
+              "button",
+              { className: "btn btn-sm btn-secondary", disabled: !!busy[0], onClick: runFull },
+              busy[0] === "full" ? "Running Full discovery..." : "Run Full Discovery"
+            )
+          )
+        : null,
+      h(SourceList, { sources: data.sources }),
+      data.rows.length
+        ? h(MergeTable, {
+            review: data,
+            selection: selection[0],
+            onPick: pick,
+            onToggle: toggle,
+            busy: busy[0] === "reject",
+            onReject: data.run.reviewable ? rejectColumn : null,
+            headerPreview: imageRow,
+            thumbWidth: thumbWidth
+          })
+        : h("div", { className: "fd-empty" }, "Nothing was found for this performer."),
+      h(UrlGraph, { graph: data.urls_graph }),
+      h(
+        "div",
+        { className: "fd-decide" },
+        h("div", { className: "fd-muted" }, "Nothing has been written to this performer yet."),
+        h(
+          "label",
+          { className: "fd-organize" },
+          h("input", {
+            type: "checkbox",
+            checked: !!organize[0],
+            onChange: function (event) { organize[1](event.target.checked); }
+          }),
+          " Organize"
+        ),
+        h(
+          "div",
+          { className: "fd-actions" },
+          h(
+            "button",
+            {
+              className: "btn btn-primary",
+              disabled: !!busy[0] || !data.run.reviewable,
+              onClick: function () {
+                decide("performer.apply_commit", {
+                  selection: selection[0],
+                  organize: organize[0],
+                  expected_updated_at: data.performer.updated_at
+                });
+              }
+            },
+            busy[0] === "performer.apply_commit" ? "Applying..." : "Apply"
+          ),
+          h(
+            "button",
+            {
+              className: "btn btn-secondary",
+              disabled: !!busy[0] || !data.run.reviewable,
+              onClick: function () { decide("performer.reject"); }
+            },
+            "Cancel"
+          )
+        )
+      ),
+      h(ConfirmRescan, { confirming: starter.confirming, onCancel: starter.cancelConfirm,
+                        onConfirm: starter.confirmReplace })
+    );
+  }
+
+  /* ----------------------------------------------------- performer page button */
+
+  // The real Fast Discovery trigger (see _MyFastPerformerScrapper.yml for why it is
+  // not the scraper dropdown): a plain button reading the real performer id straight
+  // from React props, exactly the way PerformerOrganized's own controls do. Queues
+  // the job and toasts; no scrape/merge dialog is ever shown.
+  function FastDiscoveryPerformerButton(props) {
+    var performer = props.performer;
+    var toaster = useToaster();
+    var history = Router.useHistory ? Router.useHistory() : null;
+    var status = useOp("performer.status", { performer_id: Number(performer && performer.id) },
+                       { skip: !performer || !performer.id });
+    var starter = usePerformerRunStarter(function () {
+      toaster.success("Fast performer scraping queued");
+      status.reload();
+    });
+    if (!performer || !performer.id) return null;
+
+    var run = status.data && status.data.run;
+    var label = "⚡";
+    var onClick = function (event) {
+      if (event && event.stopPropagation) event.stopPropagation();
+      starter.start(Number(performer.id), false).then(function (result) {
+        if (result === null && !starter.confirming) toaster.failure(starter.error);
+      });
+    };
+    if (run && run.status === "RUNNING") {
+      label = "⚡ ...";
+      onClick = function (event) { if (event && event.stopPropagation) event.stopPropagation(); };
+    } else if (run && run.reviewable) {
+      label = "⚡ " + run.result_count;
+      onClick = function (event) {
+        if (event && event.stopPropagation) event.stopPropagation();
+        if (history) history.push(BASE + "/performer/" + performer.id);
+      };
+    }
+
+    return h(
+      React.Fragment,
+      null,
+      h(
+        "button",
+        {
+          className: cx("btn btn-sm fd-performer-btn", props.inline && "fd-performer-btn-inline"),
+          disabled: starter.busy || (run && run.status === "RUNNING"),
+          title: run && run.reviewable
+            ? "FastDiscovery has results waiting - click to review"
+            : "Queue Fast Performer Discovery for " + (performer.name || "this performer"),
+          onClick: onClick
+        },
+        label
+      ),
+      h(ConfirmRescan, { confirming: starter.confirming, onCancel: starter.cancelConfirm,
+                        onConfirm: starter.confirmReplace })
+    );
+  }
+
+  function PerformerPanel(props) {
+    var performerId = props.performerId;
+    var status = useOp("performer.status", { performer_id: Number(performerId) });
+    var history = Router.useHistory ? Router.useHistory() : null;
+
+    React.useEffect(
+      function () {
+        var run = status.data && status.data.run;
+        if (!run || run.status !== "RUNNING") return undefined;
+        var timer = setInterval(status.reload, 4000);
+        return function () { clearInterval(timer); };
+      },
+      [status.data]
+    );
+    React.useEffect(
+      function () {
+        window.addEventListener(CHANGED_EVENT, status.reload);
+        return function () { window.removeEventListener(CHANGED_EVENT, status.reload); };
+      },
+      [status.reload]
+    );
+
+    if (status.loading && !status.data) return h(Loading, null);
+    if (status.error) return h(Problem, { error: status.error, onRetry: status.reload });
+
+    var run = status.data && status.data.run;
+    var reviewing = run && run.reviewable;
+
+    return h(
+      "div",
+      { className: "fd-panel" },
+      h(
+        "div",
+        { className: "fd-panel-head" },
+        h("h4", null, "FastDiscovery"),
+        run ? h(StatusPill, { status: run.status }) : null
+      ),
+      !run
+        ? h(
+            "p",
+            { className: "fd-muted" },
+            "Use the ⚡ Fast Discovery button above to run every performer-name " +
+              "scraper picked in settings. Nothing is written until you apply."
+          )
+        : h(
+            "div",
+            { className: "fd-panel-counts" },
+            h("span", null, run.ok_source_count + " / " + run.source_count + " source(s) answered"),
+            h("span", null, run.result_count + " result(s)"),
+            h("span", null, run.url_count + " URL(s)"),
+            run.error_count ? h("span", { className: "fd-warn" }, run.error_count + " error(s)") : null
+          ),
+      reviewing
+        ? h(
+            "div",
+            { className: "fd-actions" },
+            h(
+              "button",
+              {
+                className: "btn btn-primary",
+                onClick: function () { if (history) history.push(BASE + "/performer/" + performerId); }
+              },
+              "Review results"
+            )
+          )
+        : null,
+      reviewing ? h(PerformerReviewPage, { performerId: performerId }) : null,
+      (status.data.history || []).length
+        ? h(
+            "div",
+            { className: "fd-history" },
+            h("h5", null, "History"),
+            status.data.history.map(function (entry) {
+              return h(
+                "div",
+                { key: entry.id, className: "fd-muted" },
+                when(entry.applied_at) + " · " + entry.status +
+                  ((entry.fields || []).length ? " · " + entry.fields.join(", ") : "")
+              );
+            })
+          )
+        : null
+    );
+  }
+
   /* -------------------------------------------------------------- registration */
 
   api.register.route(BASE, RunsPage);
   api.register.route(BASE + "/settings", SettingsPage);
   api.register.route(BASE + "/scene/:id", ReviewPage);
+  api.register.route(BASE + "/performers", PerformerRunsPage);
+  api.register.route(BASE + "/performer/:id", PerformerReviewPage);
 
   // Built to match what Stash renders for Scenes, Performers and the rest, class for
   // class: a Nav.Link wrapper carrying the responsive column widths, and inside it a
@@ -2054,6 +2899,54 @@
       })
     );
   }
+
+  /* --------------------------------------------------- performer page patches */
+  //
+  // Performers do not have scene's `ScenePage.Tabs`/`TabContent`/`SceneListOperations`
+  // patch points in this Stash version - `PerformerPage` and `PerformerList` are each
+  // one `PatchComponent`-wrapped whole, with no sub-points to append a tab or a bulk
+  // menu item to (checked against the v0.31.1 source: `Performer.tsx`/
+  // `PerformerList.tsx`). So the performer entry point is the same kind of control
+  // PerformerOrganized already uses successfully on these exact three points -
+  // `after` patches that append to what the component rendered, reading the real
+  // performer object straight from its props, never from a name.
+  function attachAfter(name, where, build) {
+    api.patch.after(name, function () {
+      var props = arguments[0];
+      var result = arguments[arguments.length - 1];
+      var extra;
+      try {
+        extra = build(props);
+      } catch (error) {
+        console.warn("[FastDiscovery] could not build the performer control for " +
+                     name + ": " + error);
+        return result;
+      }
+      if (!extra) return result;
+      return where === "before"
+        ? h(React.Fragment, null, extra, result)
+        : h(React.Fragment, null, result, extra);
+    });
+  }
+
+  attachAfter("PerformerDetailsPanel", "after", function (props) {
+    var performer = props && props.performer;
+    return performer ? h(PerformerPanel, { key: "fd-performer-panel",
+                                          performerId: performer.id }) : null;
+  });
+
+  attachAfter("CompressedPerformerDetailsPanel", "after", function (props) {
+    var performer = props && props.performer;
+    return performer ? h(FastDiscoveryPerformerButton,
+                        { key: "fd-performer-compressed", performer: performer,
+                          inline: true }) : null;
+  });
+
+  attachAfter("PerformerCard.Overlays", "after", function (props) {
+    var performer = props && props.performer;
+    return performer ? h(FastDiscoveryPerformerButton,
+                        { key: "fd-performer-card", performer: performer }) : null;
+  });
 
   // Stash has passed the current selection as a Set of ids, an array of ids and an
   // array of scenes at different points in its history; all three are read here so the

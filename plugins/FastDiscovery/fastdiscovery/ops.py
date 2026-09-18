@@ -19,6 +19,7 @@ from . import apply as apply_module, logs, merge as merge_module, settings
 from .db import migrations, repo as R
 
 TASK_DISCOVER = "Discover scenes"
+TASK_DISCOVER_PERFORMERS = "Discover performers"
 
 # Which run statuses each tab of the FastDiscovery page shows.
 TABS = {
@@ -38,6 +39,7 @@ class Context:
         self.repo = repo
         self.config = config
         self._schema_fields = None
+        self._performer_schema_fields = None
 
     def schema_fields(self):
         if self._schema_fields is None:
@@ -45,6 +47,13 @@ class Context:
             self._schema_fields = sorted(stash.Schema.load(self.client,
                                                            self.repo).field_names)
         return self._schema_fields
+
+    def performer_schema_fields(self):
+        if self._performer_schema_fields is None:
+            from . import stash
+            self._performer_schema_fields = sorted(
+                stash.PerformerSchema.load(self.client, self.repo).field_names)
+        return self._performer_schema_fields
 
 
 def dispatch(context, op, args):
@@ -391,6 +400,257 @@ def op_reject(context, args):
     return apply_module.reject(context.repo, run)
 
 
+# ------------------------------------------------------------------ performers
+#
+# Sibling of the scene handlers above, one op per counterpart. Kept as its own
+# section rather than folded into the scene handlers with an `entity_type` branch on
+# every one of them: the two share `_run`/`_run_brief`/`Context`/the settings ops
+# already, and the parts that differ (which client method fetches the subject,
+# which merge/apply function builds the review, the extra Full and Organize steps)
+# are exactly the parts that would make a single parametrised handler harder to
+# follow than two short ones.
+
+def op_performer_status(context, args):
+    performer_id = _performer_id(args)
+    context.repo.sweep_stale_runs(context.config["staleRunHours"])
+    run = context.repo.latest_run(performer_id, entity_type="performer")
+    job = None
+    if run and run["status"] == R.RUNNING and run.get("job_id"):
+        job = context.client.find_job(run["job_id"])
+    return {
+        "performer_id": performer_id,
+        "run": _run_brief(run) if run else None,
+        "job": job,
+        "history": context.repo.applications_for(performer_id, limit=5,
+                                                 entity_type="performer"),
+    }
+
+
+def op_performer_discover(context, args):
+    """Queue a Fast run for one performer - the plugin-injected button's real target.
+
+    Never `runPluginOperation`-synchronous: even a Fast pass is a handful of network
+    calls, so this only ever queues the job and returns, exactly like `run.start`.
+    """
+    performer_id = _performer_id(args)
+    replace = bool(args.get("replace"))
+    context.repo.sweep_stale_runs(context.config["staleRunHours"])
+
+    existing = context.repo.reviewable_run(performer_id, entity_type="performer")
+    if existing and not replace:
+        return {"ok": False, "needs_confirmation": True,
+                "blocked": [{"performer_id": performer_id, "run_id": existing["id"],
+                             "status": existing["status"]}],
+                "error": "this performer already has FastDiscovery results waiting "
+                         "for a decision. Running again replaces them."}
+
+    job_id = context.client.run_plugin_task(
+        settings.PLUGIN_ID, TASK_DISCOVER_PERFORMERS,
+        {"task": TASK_DISCOVER_PERFORMERS, "performer_ids": str(performer_id),
+         "mode": "FAST", "trigger": str(args.get("trigger") or "ui"), "replace": "1"})
+    return {"queued": True, "performer_id": performer_id, "job_id": job_id}
+
+
+def op_performer_full(context, args):
+    """Queue a Full pass on top of an existing (Fast) run - never a fresh run."""
+    run = _run(context, args, entity_type="performer")
+    if not run or run["entity_type"] != "performer":
+        return {"ok": False, "error": "no such performer run"}
+    if not run["reviewable"]:
+        return {"ok": False, "error": "this run is not ready for Full discovery yet"}
+    if run["mode"] == "FULL":
+        return {"ok": False, "error": "Full discovery has already run for this result"}
+
+    job_id = context.client.run_plugin_task(
+        settings.PLUGIN_ID, TASK_DISCOVER_PERFORMERS,
+        {"task": TASK_DISCOVER_PERFORMERS, "run_id": str(run["id"]), "mode": "FULL"})
+    return {"queued": True, "run_id": run["id"], "job_id": job_id}
+
+
+def op_performer_run_list(context, args):
+    context.repo.sweep_stale_runs(context.config["staleRunHours"])
+    tab = str(args.get("tab") or "ready")
+    statuses = TABS.get(tab) if tab != "all" else None
+    total, runs = context.repo.list_runs(statuses, page=args.get("page") or 1,
+                                         per_page=args.get("per_page") or 25,
+                                         entity_type="performer")
+    performers = {}
+    for performer in context.client.find_performers_brief(
+            [run["scene_id"] for run in runs]):
+        performers[str(performer["id"])] = {
+            "id": performer["id"], "name": performer.get("name"),
+            "disambiguation": performer.get("disambiguation"),
+            "image": performer.get("image_path"),
+        }
+    return {
+        "total": total, "tab": tab,
+        "counts": context.repo.status_counts(entity_type="performer"),
+        "runs": [dict(_run_brief(run), performer=performers.get(str(run["scene_id"])))
+                 for run in runs],
+    }
+
+
+def op_performer_review_get(context, args):
+    run = _run(context, args, entity_type="performer")
+    if not run:
+        return {"ok": False, "error": "no FastDiscovery results for this performer"}
+    if run["purged"]:
+        return {"ok": False, "error": "this run has already been %s; its results were "
+                                      "deleted" % run["status"].lower()}
+    performer = context.client.find_performer(run["scene_id"])
+    if not performer:
+        return {"ok": False, "error": "performer %s no longer exists"
+                                      % run["scene_id"]}
+
+    review = merge_module.build_performer(context.repo, run, performer,
+                                          context.performer_schema_fields(),
+                                          context.client, run.get("rejected_columns"))
+    review["summary"] = merge_module.summarise(review)
+    review["default_selection"] = merge_module.default_selection(review)
+    saved = run.get("selection")
+    review["selection"] = (merge_module.sanitise_selection(review, saved) if saved
+                           else review["default_selection"])
+    review["fast_scraper_ids"] = _fast_scraper_ids(context)
+    review["image_preview_width"] = context.config["performerImagePreviewWidth"]
+    return review
+
+
+def op_performer_reject_column(context, args):
+    run = _run(context, args, entity_type="performer")
+    if not run or run["purged"]:
+        return {"ok": False, "error": "no results to review"}
+    column = str(args.get("column_id") or "")
+    if not column:
+        return {"ok": False, "error": "column_id is required"}
+    if column not in context.repo.result_columns(run["id"]):
+        return {"ok": False, "error": "this run has no column %r" % column}
+
+    rejected = set(run.get("rejected_columns") or [])
+    if args.get("rejected", True):
+        rejected.add(column)
+    else:
+        rejected.discard(column)
+
+    performer = context.client.find_performer(run["scene_id"])
+    carried = None
+    if performer:
+        before = merge_module.build_performer(context.repo, run, performer,
+                                              context.performer_schema_fields(),
+                                              context.client,
+                                              run.get("rejected_columns"))
+        carried = merge_module.selection_signatures(
+            before, run.get("selection") or merge_module.default_selection(before))
+
+    context.repo.set_rejected_columns(run["id"], rejected)
+
+    refreshed = op_performer_review_get(context, {"run_id": run["id"]})
+    if refreshed.get("ok") is not False and refreshed.get("selection") is not None:
+        if carried is not None:
+            refreshed["selection"] = dict(refreshed["selection"],
+                                          **merge_module.carry_selection(refreshed,
+                                                                         carried))
+        context.repo.set_selection(run["id"], refreshed["selection"])
+    return refreshed
+
+
+def op_performer_review_save(context, args):
+    run = _run(context, args, entity_type="performer")
+    if not run:
+        return {"ok": False, "error": "no such run"}
+    selection = args.get("selection")
+    if not isinstance(selection, dict):
+        return {"ok": False, "error": "selection must be an object"}
+    context.repo.set_selection(run["id"], selection)
+    return {"saved": True, "run_id": run["id"]}
+
+
+def op_performer_apply_preview(context, args):
+    run = _run(context, args, entity_type="performer")
+    if not run or run["purged"]:
+        return {"ok": False, "error": "no results to apply"}
+    performer = context.client.find_performer(run["scene_id"])
+    if not performer:
+        return {"ok": False, "error": "performer %s no longer exists"
+                                      % run["scene_id"]}
+    return apply_module.preview_performer(context.repo, context.client, run, performer,
+                                          args.get("selection"),
+                                          context.performer_schema_fields(),
+                                          rejected=run.get("rejected_columns"))
+
+
+def op_performer_apply_commit(context, args):
+    run = _run(context, args, entity_type="performer")
+    if not run or run["purged"]:
+        return {"ok": False, "error": "no results to apply"}
+    performer = context.client.find_performer(run["scene_id"])
+    if not performer:
+        return {"ok": False, "error": "performer %s no longer exists"
+                                      % run["scene_id"]}
+    try:
+        return apply_module.commit_performer(
+            context.repo, context.client, run, performer, args.get("selection"),
+            context.performer_schema_fields(),
+            expected_updated_at=args.get("expected_updated_at"),
+            rejected=run.get("rejected_columns"), organize=bool(args.get("organize")))
+    except apply_module.ApplyError as exc:
+        return {"ok": False, "error": str(exc), "run_id": run["id"],
+                "status": (context.repo.run(run["id"]) or {}).get("status")}
+
+
+def op_performer_reject(context, args):
+    """Also what Cancel means (requirement 15): discard the discovery, not the
+    performer - `apply.reject` writes nothing to Stash either way."""
+    run = _run(context, args, entity_type="performer")
+    if not run:
+        return {"ok": False, "error": "no such run"}
+    if run["purged"]:
+        return {"ok": False, "error": "this run has already been decided"}
+    return apply_module.reject(context.repo, run)
+
+
+def op_performer_run_delete(context, args):
+    run = _run(context, args, entity_type="performer")
+    if not run:
+        return {"ok": False, "error": "no such run"}
+    context.repo.delete_run(run["id"])
+    return {"deleted": run["id"]}
+
+
+def op_performer_run_cancel(context, args):
+    """Stop the job behind a *running* discovery (Fast or Full) - not a decision."""
+    run = _run(context, args, entity_type="performer")
+    if not run:
+        return {"ok": False, "error": "no such run"}
+    if not run.get("job_id"):
+        return {"ok": False, "error": "this run has no job to stop"}
+    stopped = context.client.stop_job(run["job_id"])
+    if stopped:
+        context.repo.finish_run(run["id"], R.CANCELLED, stop_reason="cancelled")
+    return {"stopped": bool(stopped), "run_id": run["id"]}
+
+
+def op_performer_scrapers(context, args):
+    """Installed performer-name scrapers, for the settings page's multi-select.
+
+    Never a hardcoded list (requirement 23): read fresh from Stash every time the
+    settings page loads, so a scraper installed or removed since is reflected without
+    touching this plugin's own settings.
+    """
+    from . import registry as registry_module
+    scrapers = registry_module.from_list_scrapers(
+        context.client.list_performer_scrapers(), content_key="performer")
+    return {"scrapers": [{"id": entry["id"], "name": entry["name"],
+                          "kinds": entry["kinds"]} for entry in scrapers]}
+
+
+def _fast_scraper_ids(context):
+    import json
+    try:
+        return json.loads(context.config["performerFastScrapers"] or "[]")
+    except ValueError:
+        return []
+
+
 # ------------------------------------------------------- the scraper entry point
 
 # What the scraper shim should tell the user. The shim holds no policy of its own.
@@ -470,20 +730,31 @@ def _scene_ids(args):
     return out
 
 
-def _run(context, args):
+def _performer_id(args):
+    value = str(args.get("performer_id") or "").strip()
+    if not value.isdigit():
+        raise ValueError("performer_id is required")
+    return int(value)
+
+
+def _run(context, args, entity_type="scene"):
     if args.get("run_id"):
         return context.repo.run(int(args["run_id"]))
-    scene_id = _scene_id(args)
-    return (context.repo.reviewable_run(scene_id)
-            or context.repo.latest_run(scene_id))
+    if entity_type == "performer":
+        entity_id = _performer_id(args)
+    else:
+        entity_id = _scene_id(args)
+    return (context.repo.reviewable_run(entity_id, entity_type=entity_type)
+            or context.repo.latest_run(entity_id, entity_type=entity_type))
 
 
 def _run_brief(run):
     return {key: run.get(key) for key in
-            ("id", "scene_id", "status", "trigger", "job_id", "started_at",
-             "finished_at", "decided_at", "source_count", "ok_source_count",
-             "error_count", "url_count", "result_count", "max_depth_reached",
-             "stop_reason", "error", "reviewable", "purged", "progress")}
+            ("id", "scene_id", "entity_id", "entity_type", "mode", "status", "trigger",
+             "job_id", "started_at", "finished_at", "decided_at", "source_count",
+             "ok_source_count", "error_count", "url_count", "result_count",
+             "max_depth_reached", "stop_reason", "error", "reviewable", "purged",
+             "progress")}
 
 
 HANDLERS = {
@@ -505,4 +776,17 @@ HANDLERS = {
     "run.reject": op_reject,
     "scraper.entry": op_scraper_entry,
     "maintenance.run": op_maintenance,
+    "performer.status": op_performer_status,
+    "performer.discover": op_performer_discover,
+    "performer.full": op_performer_full,
+    "performer.run_list": op_performer_run_list,
+    "performer.run_delete": op_performer_run_delete,
+    "performer.run_cancel": op_performer_run_cancel,
+    "performer.review_get": op_performer_review_get,
+    "performer.review_save": op_performer_review_save,
+    "performer.reject_column": op_performer_reject_column,
+    "performer.apply_preview": op_performer_apply_preview,
+    "performer.apply_commit": op_performer_apply_commit,
+    "performer.reject": op_performer_reject,
+    "performer.scrapers": op_performer_scrapers,
 }

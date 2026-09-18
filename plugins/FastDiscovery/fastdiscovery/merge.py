@@ -84,6 +84,54 @@ def column_id(source_id, ordinal=0):
     return "s%s_%s" % (source_id, ordinal)
 
 
+def _build_columns(repo, run, rejected, current_values):
+    """The column list and the payload/endpoint maps shared by every kind of row.
+
+    Entity-agnostic: a "column" is just one source's one answer, whatever it is an
+    answer about, so this is the part `build()` and `build_performer()` do not need
+    two copies of.
+    """
+    rejected = {str(one) for one in (rejected or [])}
+    sources = repo.sources_of(run["id"])
+    results = repo.results_of(run["id"])
+
+    columns = [{"id": CURRENT, "type": CURRENT, "name": "Current", "source_id": None,
+                "rejected": False,
+                "url": None, "endpoint": None, "depth": 0, "attribution": "CERTAIN",
+                "parent": None, "scraper_id": None, "result_ordinal": 0}]
+    by_source = {source["id"]: source for source in sources}
+    for result in results:
+        source = by_source.get(result["source_id"], {})
+        key = column_id(result["source_id"], result["ordinal"])
+        columns.append({
+            "id": key,
+            "rejected": key in rejected,
+            "type": result["source_type"],
+            "name": _column_name(source, result),
+            "source_id": result["source_id"],
+            "result_id": result["id"],
+            "result_ordinal": result["ordinal"],
+            "url": result["source_url"],
+            "endpoint": result["source_endpoint"],
+            "scraper_id": result["source_scraper_id"],
+            "method": result["source_method"],
+            "attribution": result["source_attribution"],
+            "depth": result["source_depth"],
+            "parent": _parent_column(result, by_source, results),
+        })
+
+    payloads = {CURRENT: current_values}
+    endpoints = {CURRENT: None}
+    for result in results:
+        key = column_id(result["source_id"], result["ordinal"])
+        if key in rejected:
+            continue          # its values take no part in any row
+        payloads[key] = result["raw"]
+        endpoints[key] = result["source_endpoint"]
+
+    return columns, payloads, endpoints, sources, results, rejected
+
+
 def build(repo, run, scene, schema_fields=None, client=None, rejected=None):
     """The whole review payload for one run.
 
@@ -878,6 +926,116 @@ def _graph(repo, run, by_source, results):
 
 
 # ------------------------------------------------------------------ selection
+
+def build_performer(repo, run, performer, schema_fields=None, client=None,
+                    rejected=None):
+    """`build()`'s sibling for a performer run.
+
+    Everything about *how* a row merges - one value wins, a union, an entity resolved
+    never invented - is the field's `kind`, and `_scalar_row`/`_url_row`/
+    `_stash_id_row`/`_entity_row` do not know or care whether the field belongs to a
+    scene or a performer. Only the image row differs in shape: a `ScrapedPerformer`
+    result can carry several photos where a `ScrapedScene` result carries one, so it
+    gets its own builder (`_performer_image_row`) instead of `_image_row`.
+    """
+    snapshot = fields.performer_snapshot(performer)
+    columns, payloads, endpoints, sources, results, rejected = _build_columns(
+        repo, run, rejected, snapshot["values"])
+    images_by_result = repo.images_of_results(run["id"])
+
+    known = list(fields.PERFORMER_FIELDS) + fields.performer_extra_fields(schema_fields)
+    rows = []
+    for field in sorted(known, key=lambda one: one.order):
+        if field.kind == fields.IMAGE:
+            row = _performer_image_row(field, columns, snapshot, results,
+                                       images_by_result)
+        elif field.kind == fields.STASH_ID:
+            row = _stash_id_row(field, columns, payloads, endpoints, snapshot)
+        elif field.kind in (fields.ENTITY, fields.ENTITY_LIST):
+            row = _entity_row(field, columns, payloads, endpoints, snapshot, client)
+        elif field.kind == fields.URL_LIST:
+            row = _url_row(field, columns, payloads)
+        else:
+            row = _scalar_row(field, columns, payloads)
+        if row is not None:
+            rows.append(row)
+
+    return {
+        "entity_type": "performer",
+        "run": _run_summary(run),
+        "performer": {"id": snapshot["performer_id"], "name": snapshot["display_name"],
+                      "image": snapshot["image"], "updated_at": snapshot["updated_at"]},
+        "columns": columns,
+        "sources": [_source_summary(source) for source in sources],
+        "rejected_columns": sorted(rejected),
+        "rows": rows,
+        "urls_graph": _graph(repo, run, {s["id"]: s for s in sources}, results),
+    }
+
+
+def _performer_image_row(field, columns, snapshot, results, images_by_result):
+    """Every distinct photo on offer, across every result of every active column.
+
+    Unlike a scene's one-cover-per-result, a performer result can carry many
+    (`ScrapedPerformer.images`), so this reads `result_images` rather than the
+    single `image_url`/`image_sha256` pair `_image_row` uses - the one place a
+    performer row's shape genuinely differs from a scene's, everywhere else is the
+    same code (requirement: many photos per result, none picked automatically).
+    """
+    by_result = {result["id"]: result for result in results}
+    candidates, index, cells = [], {}, {}
+
+    if snapshot.get("image"):
+        entry = {"id": option_id("i", "current"), "key": "current", "kind": "scene",
+                 "url": snapshot["image"], "sha256": None, "sources": [CURRENT]}
+        candidates.append(entry)
+        index["current"] = entry
+        cells[CURRENT] = entry["id"]
+    else:
+        cells[CURRENT] = None
+
+    for column in columns:
+        if column["id"] == CURRENT:
+            continue
+        result = None if column.get("rejected") else by_result.get(column.get("result_id"))
+        first_id = None
+        for image in (images_by_result.get(result["id"]) if result else None) or []:
+            key = kind = url = sha = None
+            if image.get("sha256"):
+                key, kind, sha = "b:" + image["sha256"], "blob", image["sha256"]
+            elif image.get("url"):
+                record = urls_module.normalize(image["url"])
+                key = "u:" + (record["key"] if record else image["url"])
+                kind, url = "url", image["url"]
+            if key is None:
+                continue
+            entry = index.get(key)
+            if entry is None:
+                entry = {"id": option_id("i", key), "key": key, "kind": kind,
+                         "url": url, "sha256": sha, "sources": []}
+                index[key] = entry
+                candidates.append(entry)
+            if column["id"] not in entry["sources"]:
+                entry["sources"].append(column["id"])
+            # Only the column's *first* photo becomes its cell value - what the review
+            # header shows to identify the result - never all of them (requirement 10).
+            # Every photo, first or not, is still in `values` for the gallery.
+            if first_id is None:
+                first_id = entry["id"]
+        cells[column["id"]] = first_id
+
+    if not candidates:
+        return None
+    for entry in candidates:
+        entry["is_current"] = CURRENT in entry["sources"]
+    return {
+        "field": field.name, "kind": field.kind, "label": field.label,
+        "writable": field.writable, "note": field.note,
+        "values": candidates, "cells": cells,
+        "default": next((entry["id"] for entry in candidates if entry["is_current"]),
+                        None),
+    }
+
 
 def default_selection(review):
     """The selection the review starts with, as apply expects to receive it."""

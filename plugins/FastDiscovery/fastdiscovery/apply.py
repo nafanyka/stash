@@ -109,9 +109,97 @@ def commit(repo, client, run, scene, selection, schema_fields=None,
             "linked": linked, "marker": marker, "fields": sorted(values)}
 
 
+def preview_performer(repo, client, run, performer, selection, schema_fields=None,
+                      rejected=None):
+    """`preview()`'s sibling for a performer run."""
+    review = merge_module.build_performer(repo, run, performer, schema_fields, client,
+                                          rejected)
+    plan = _plan(review, selection)
+    return {"changes": plan["changes"], "creates": plan["creates"],
+            "unchanged": plan["unchanged"], "problems": plan["problems"],
+            "performer_updated_at": review["performer"]["updated_at"]}
+
+
+def commit_performer(repo, client, run, performer, selection, schema_fields=None,
+                     expected_updated_at=None, rejected=None, organize=False):
+    """`commit()`'s sibling for a performer run.
+
+    Identical shape and identical safety properties - rebuild against the live
+    performer, refuse a stale write, create only what was ticked, one
+    `performerUpdate`, purge only once that succeeds. The one addition is Organize
+    (requirement: off by default, and only ever *sets* the flag, reusing the exact
+    mechanism `PerformerOrganized` already uses - see `stash.Client.
+    set_performer_organized`), applied after the field write succeeds so a failed
+    Organize call cannot be mistaken for a failed apply of the reviewed fields.
+    """
+    review = merge_module.build_performer(repo, run, performer, schema_fields, client,
+                                          rejected)
+    live_stamp = review["performer"]["updated_at"]
+    if expected_updated_at and live_stamp and str(expected_updated_at) != str(live_stamp):
+        raise ApplyError("the performer changed since this review was loaded - reload "
+                         "it and check the selection before applying")
+
+    plan = _plan(review, selection)
+    if plan["problems"]:
+        raise ApplyError("; ".join(plan["problems"]))
+    if not plan["changes"] and not plan["creates"] and not organize:
+        return {"applied": False, "reason": "nothing was selected that would change "
+                                            "the performer", "changes": [], "created": {}}
+
+    created, linked = _create_entities(client, plan["creates"])
+    values = _performer_update_input(repo, review, plan)
+    values["id"] = str(run["scene_id"])   # the generic "subject id" column; see db/migrations.py
+
+    logs.info("performer %s: applying %s"
+              % (run["scene_id"], ", ".join(sorted(one["field"]
+                                                   for one in plan["changes"]))
+                                  or "(no field changes)"))
+
+    if plan["changes"] or plan["creates"]:
+        try:
+            client.performer_update(values)
+        except Exception as exc:
+            from .executor import describe_error
+            message = describe_error(exc)
+            repo.add_application(run["id"], run["scene_id"], "FAILED",
+                                 [one["field"] for one in plan["changes"]], created,
+                                 message, entity_type="performer")
+            repo.set_run_status(run["id"], R.FAILED_APPLY, message)
+            raise ApplyError(message)
+
+    organized = None
+    if organize:
+        try:
+            client.set_performer_organized(run["scene_id"], True)
+            organized = True
+        except Exception as exc:
+            from .executor import describe_error
+            message = describe_error(exc)
+            # The field write already succeeded; losing Organize on top of it must not
+            # look like a failed apply, or the run would stay open for changes that
+            # already happened, inviting a second, no-op performerUpdate.
+            logs.warning("performer %s: field update applied, but Organize failed: %s"
+                        % (run["scene_id"], message))
+
+    repo.add_application(run["id"], run["scene_id"], "APPLIED",
+                         [one["field"] for one in plan["changes"]],
+                         {"created": created, "linked": linked, "organized": organized},
+                         entity_type="performer")
+    repo.set_run_status(run["id"], R.APPLIED)
+    repo.purge_run(run["id"])
+    return {"applied": True, "changes": plan["changes"], "created": created,
+            "linked": linked, "organized": organized, "fields": sorted(values)}
+
+
 def reject(repo, run):
-    """No write at all, the payload dropped, one audit row kept (requirement 21)."""
-    repo.add_application(run["id"], run["scene_id"], "REJECTED")
+    """No write at all, the payload dropped, one audit row kept (requirement 21).
+
+    Entity-agnostic: a scene and a performer run reject exactly the same way, so this
+    is the one function `ops.py` calls for either (`run["entity_type"]` says which
+    audit bucket the row belongs to).
+    """
+    repo.add_application(run["id"], run["scene_id"], "REJECTED",
+                         entity_type=run.get("entity_type") or "scene")
     repo.set_run_status(run["id"], R.REJECTED)
     repo.purge_run(run["id"])
     return {"rejected": True, "run_id": run["id"]}
@@ -423,6 +511,77 @@ def _scene_update_input(repo, review, plan):
                             "stash_id": by_id[one]["stash_id"]}
                            for one in change["value_ids"]]
     return values
+
+
+_GENDER_ENUM = {"male", "female", "transgender_male", "transgender_female",
+                "intersex", "non_binary"}
+_CIRCUMCISED_ENUM = {"cut", "uncut"}
+
+
+def _performer_update_input(repo, review, plan):
+    """`_scene_update_input`'s sibling for a performer.
+
+    Two real type differences from a scene's fields, both resolved here and nowhere
+    else: `height`/`weight` arrive as free text and Stash stores an integer
+    (`fields.parse_int_prefix`); `gender`/`circumcised` arrive as free text and Stash
+    stores an enum, accepted case-insensitively and left out of the write entirely
+    when the scraped word is not one Stash recognises, rather than sending a value the
+    mutation would reject and losing every other field in the same update to it.
+    """
+    rows = {row["field"]: row for row in review["rows"]}
+    values = {}
+
+    for change in plan["changes"]:
+        row = rows[change["field"]]
+        field = fields.PERFORMER_BY_NAME.get(change["field"])
+        key = field.update_key if field else row["field"]
+        by_id = {value["id"]: value for value in row["values"]}
+
+        if row["kind"] == fields.SCALAR:
+            coerced = _performer_scalar_for_update(
+                change["field"], by_id[change["value_id"]]["raw"])
+            # A value that did not coerce to anything Stash's typed column accepts
+            # (an unrecognised gender/circumcised word, a height/weight with no
+            # digits) is left out of the write entirely rather than sent as null,
+            # which would clear the field instead of leaving it as it was.
+            if coerced is not None:
+                values[key] = coerced
+            continue
+        elif row["kind"] == fields.IMAGE:
+            image = _image_for_update(repo, by_id[change["value_id"]])
+            if image is None:
+                raise ApplyError("the selected image is no longer available")
+            values[key] = image
+        elif row["kind"] == fields.ENTITY_LIST:
+            picked = [by_id[one] for one in change["value_ids"]]
+            values[key] = [str(entity["stored_id"]) for entity in picked
+                           if entity.get("stored_id")]
+        elif row["kind"] == fields.URL_LIST:
+            values[key] = [by_id[one]["raw"] for one in change["value_ids"]]
+        elif row["kind"] == fields.STASH_ID:
+            values[key] = [{"endpoint": by_id[one]["endpoint"],
+                            "stash_id": by_id[one]["stash_id"]}
+                           for one in change["value_ids"]]
+    return values
+
+
+def _performer_scalar_for_update(name, raw):
+    if name == "height":
+        return fields.parse_int_prefix(raw)
+    if name == "weight":
+        return fields.parse_int_prefix(raw)
+    if name == "gender":
+        word = fields.clean(raw)
+        return word.strip().upper().replace(" ", "_") if word and \
+            word.strip().lower().replace(" ", "_") in _GENDER_ENUM else None
+    if name == "circumcised":
+        word = fields.clean(raw)
+        return word.strip().upper() if word and word.strip().lower() in \
+            _CIRCUMCISED_ENUM else None
+    if name == "aliases":
+        parts = [one.strip() for one in str(raw or "").split(",") if one.strip()]
+        return parts
+    return fields.clean(raw)
 
 
 def _scalar_for_update(name, raw):

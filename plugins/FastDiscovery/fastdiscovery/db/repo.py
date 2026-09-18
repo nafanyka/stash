@@ -155,15 +155,23 @@ class Repo:
 
     # -- runs --------------------------------------------------------------
 
-    def start_run(self, scene_id, trigger, config, snapshot, job_id=None):
+    def start_run(self, scene_id, trigger, config, snapshot, job_id=None,
+                  entity_type="scene", mode="FAST"):
         with self.connection:
             cursor = self.connection.execute(
                 "INSERT INTO runs(scene_id, status, trigger, job_id, started_at,"
-                " heartbeat_at, config_json, scene_snapshot_json)"
-                " VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                " heartbeat_at, config_json, scene_snapshot_json, entity_type, mode)"
+                " VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (int(scene_id), RUNNING, str(trigger), str(job_id) if job_id else None,
-                 now(), now(), _dumps(config or {}), _dumps(snapshot or {})))
+                 now(), now(), _dumps(config or {}), _dumps(snapshot or {}),
+                 str(entity_type), str(mode)))
         return cursor.lastrowid
+
+    def set_run_mode(self, run_id, mode):
+        """FAST -> FULL, once a performer run's Full pass finishes (requirement 26)."""
+        with self.connection:
+            self.connection.execute("UPDATE runs SET mode = ? WHERE id = ?",
+                                    (str(mode), int(run_id)))
 
     def heartbeat(self, run_id, progress=None):
         with self.connection:
@@ -226,23 +234,24 @@ class Repo:
                                       (int(run_id),)).fetchone()
         return self._run_row(row)
 
-    def latest_run(self, scene_id, statuses=None):
-        query = "SELECT * FROM runs WHERE scene_id = ?"
-        params = [int(scene_id)]
+    def latest_run(self, scene_id, statuses=None, entity_type="scene"):
+        query = "SELECT * FROM runs WHERE scene_id = ? AND entity_type = ?"
+        params = [int(scene_id), str(entity_type)]
         if statuses:
             query += " AND status IN (%s)" % ",".join("?" * len(statuses))
             params.extend(statuses)
         query += " ORDER BY started_at DESC, id DESC LIMIT 1"
         return self._run_row(self.connection.execute(query, params).fetchone())
 
-    def active_run(self, scene_id):
-        return self.latest_run(scene_id, [RUNNING])
+    def active_run(self, scene_id, entity_type="scene"):
+        return self.latest_run(scene_id, [RUNNING], entity_type)
 
-    def reviewable_run(self, scene_id):
-        return self.latest_run(scene_id, list(REVIEWABLE))
+    def reviewable_run(self, scene_id, entity_type="scene"):
+        return self.latest_run(scene_id, list(REVIEWABLE), entity_type)
 
-    def list_runs(self, statuses=None, page=1, per_page=25, scene_ids=None):
-        where, params = ["1 = 1"], []
+    def list_runs(self, statuses=None, page=1, per_page=25, scene_ids=None,
+                  entity_type="scene"):
+        where, params = ["entity_type = ?"], [str(entity_type)]
         if statuses:
             where.append("status IN (%s)" % ",".join("?" * len(statuses)))
             params.extend(statuses)
@@ -260,9 +269,14 @@ class Repo:
             params + [per_page, (page - 1) * per_page]).fetchall()
         return total, [self._run_row(row) for row in rows]
 
-    def status_counts(self):
-        rows = self.connection.execute(
-            "SELECT status, COUNT(*) AS total FROM runs GROUP BY status").fetchall()
+    def status_counts(self, entity_type=None):
+        if entity_type is None:
+            rows = self.connection.execute(
+                "SELECT status, COUNT(*) AS total FROM runs GROUP BY status").fetchall()
+        else:
+            rows = self.connection.execute(
+                "SELECT status, COUNT(*) AS total FROM runs WHERE entity_type = ?"
+                " GROUP BY status", (str(entity_type),)).fetchall()
         return {row["status"]: row["total"] for row in rows}
 
     def sweep_stale_runs(self, hours):
@@ -270,7 +284,8 @@ class Repo:
 
         `stopJob` kills the plugin process outright and a crash is no gentler, so a run
         left RUNNING is not evidence that anything is running. The heartbeat is what
-        tells the two apart.
+        tells the two apart. Entity-agnostic on purpose: a killed process leaves the
+        same signature whether it was scraping a scene or a performer.
         """
         cutoff = ago(float(hours) * 3600.0)
         with self.connection:
@@ -293,6 +308,14 @@ class Repo:
         run["progress"] = _loads(run.pop("progress_json", None), {})
         run["purged"] = bool(run.get("purged"))
         run["reviewable"] = run["status"] in REVIEWABLE and not run["purged"]
+        run["entity_type"] = run.get("entity_type") or "scene"
+        run["mode"] = run.get("mode") or "FAST"
+        # `scene_id` is the historical column name; every new (entity-agnostic) code
+        # path reads `entity_id` instead, and `entity_snapshot` instead of
+        # `scene_snapshot`. Both names stay populated with the same value so existing
+        # scene code needs no change at all.
+        run["entity_id"] = run["scene_id"]
+        run["entity_snapshot"] = run["scene_snapshot"]
         return run
 
     # -- purge -------------------------------------------------------------
@@ -327,7 +350,9 @@ class Repo:
         with self.connection:
             cursor = self.connection.execute(
                 "DELETE FROM images WHERE sha256 NOT IN"
-                " (SELECT image_sha256 FROM results WHERE image_sha256 IS NOT NULL)")
+                " (SELECT image_sha256 FROM results WHERE image_sha256 IS NOT NULL"
+                " UNION"
+                " SELECT image_sha256 FROM result_images WHERE image_sha256 IS NOT NULL)")
         return cursor.rowcount or 0
 
     # -- sources -----------------------------------------------------------
@@ -433,6 +458,40 @@ class Repo:
                  image_url, image_sha256, now()))
         return cursor.lastrowid
 
+    def add_result_images(self, result_id, images):
+        """Every photo a performer result carried (`ScrapedPerformer.images`).
+
+        A scene result has exactly one candidate image and keeps using
+        `results.image_url`/`image_sha256` untouched; a performer result can have many,
+        which is the one shape scenes never needed. `images` is
+        `[{"url": ... } | {"sha256": ...}, ...]`, already externalised the same way a
+        single scene image is (`discovery._externalise_image`) - never a raw data URI.
+        """
+        images = [one for one in (images or []) if isinstance(one, dict)
+                  and (one.get("url") or one.get("sha256"))]
+        if not images:
+            return
+        with self.connection:
+            self.connection.executemany(
+                "INSERT INTO result_images(result_id, ordinal, image_url, image_sha256)"
+                " VALUES(?,?,?,?)",
+                [(int(result_id), ordinal, one.get("url"), one.get("sha256"))
+                 for ordinal, one in enumerate(images)])
+
+    def images_of_results(self, run_id):
+        """result_id -> [{ordinal, url, sha256}], for every performer result in a run."""
+        rows = self.connection.execute(
+            "SELECT ri.result_id, ri.ordinal, ri.image_url, ri.image_sha256"
+            " FROM result_images ri JOIN results r ON r.id = ri.result_id"
+            " WHERE r.run_id = ? ORDER BY ri.result_id, ri.ordinal",
+            (int(run_id),)).fetchall()
+        out = {}
+        for row in rows:
+            out.setdefault(row["result_id"], []).append(
+                {"ordinal": row["ordinal"], "url": row["image_url"],
+                 "sha256": row["image_sha256"]})
+        return out
+
     def results_of(self, run_id):
         """Every result of a run, each carrying the source that produced it."""
         rows = self.connection.execute(
@@ -534,20 +593,23 @@ class Repo:
     # -- applications ------------------------------------------------------
 
     def add_application(self, run_id, scene_id, status, fields=None, created=None,
-                        error=None):
+                        error=None, entity_type="scene"):
         with self.connection:
             cursor = self.connection.execute(
                 "INSERT INTO applications(run_id, scene_id, applied_at, status,"
-                " fields_json, created_json, error) VALUES(?,?,?,?,?,?,?)",
+                " fields_json, created_json, error, entity_type) VALUES(?,?,?,?,?,?,?,?)",
                 (int(run_id), int(scene_id), now(), str(status),
-                 _dumps(list(fields or [])), _dumps(created or {}), error))
+                 _dumps(list(fields or [])), _dumps(created or {}), error,
+                 str(entity_type)))
         return cursor.lastrowid
 
-    def applications_for(self, scene_id, limit=10):
+    def applications_for(self, scene_id, limit=10, entity_type="scene"):
+        # Filtered by entity_type too: a performer and a scene can share a numeric id,
+        # and without the filter one's audit history would bleed into the other's.
         rows = self.connection.execute(
-            "SELECT * FROM applications WHERE scene_id = ?"
+            "SELECT * FROM applications WHERE scene_id = ? AND entity_type = ?"
             " ORDER BY applied_at DESC, id DESC LIMIT ?",
-            (int(scene_id), int(limit))).fetchall()
+            (int(scene_id), str(entity_type), int(limit))).fetchall()
         out = []
         for row in rows:
             record = dict(row)

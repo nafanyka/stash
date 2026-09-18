@@ -114,6 +114,48 @@
   margin-bottom: 1rem;
 }
 
+.fd-kind-switch {
+  display: flex;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.fd-organize {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.5rem 0;
+  cursor: pointer;
+}
+
+.fd-scraper-picklist {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.2rem 0.75rem;
+}
+
+/* The FastDiscovery button/badge attached to a performer's card, compressed panel
+   and details panel. Small and unobtrusive next to Stash's own controls there; the
+   result count it shows once a run is reviewable is the same number the Runs page
+   shows for that run. */
+.fd-performer-btn {
+  background: var(--secondary, #394b59);
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.85em;
+  line-height: 1.4;
+}
+
+.fd-performer-btn:hover:not(:disabled) {
+  background: var(--primary, #137cbd);
+}
+
+.fd-performer-btn-inline {
+  margin-left: 0.5rem;
+}
+
 /* ----------------------------------------------------------------------- pills */
 
 .fd-pill {
@@ -439,6 +481,25 @@
   max-height: 240px;
   height: auto;
   object-fit: contain;
+}
+
+/* A performer result's identifying photo, in its column header. Sized by the
+   "Performer image preview width" setting via an inline style (Thumbnail's `width`
+   prop) - this class only supplies a sane fallback and the spacing above the reject
+   toggle. */
+.fd-thumb-header {
+  display: block;
+  width: 150px;
+  max-width: 150px;
+  max-height: none;
+  height: auto;
+  margin: 0.35rem 0;
+  border-radius: 3px;
+}
+
+.fd-thumb-header.fd-thumb-loading,
+.fd-thumb-header.fd-thumb-missing {
+  width: 150px;
 }
 
 .fd-thumb-loading,

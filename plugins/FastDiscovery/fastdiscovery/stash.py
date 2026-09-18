@@ -77,6 +77,30 @@ stash_ids { endpoint stash_id }
 # The cheap shape, for lists of many scenes.
 SCENE_BRIEF = "id title date paths { screenshot } studio { id name } files { basename }"
 
+# Everything ScrapedPerformer offers in 0.31.1, minus the deprecated singular
+# spellings (`url`, `twitter`, `instagram`, `image`, `career_length`) already folded
+# into `urls`/`images`/`career_start`+`career_end` - trimmed the same way _SCENE_FIELDS
+# is, by `PerformerSchema` against what the running server actually declares.
+_PERFORMER_FIELDS = (
+    "name", "disambiguation", "gender", "urls", "birthdate", "ethnicity", "country",
+    "eye_color", "height", "measurements", "fake_tits", "penis_length", "circumcised",
+    "career_start", "career_end", "tattoos", "piercings", "aliases",
+    "tags { stored_id name description remote_site_id }",
+    "images", "details", "death_date", "hair_color", "weight", "remote_site_id",
+)
+
+# What FastDiscovery needs to know about a performer from Stash itself.
+PERFORMER_FIELDS = """
+id name disambiguation gender urls birthdate death_date country ethnicity eye_color
+hair_color height_cm weight measurements fake_tits penis_length circumcised
+career_start career_end tattoos piercings alias_list details rating100 updated_at
+image_path
+tags { id name }
+stash_ids { endpoint stash_id }
+"""
+
+PERFORMER_BRIEF = "id name image_path disambiguation"
+
 
 class Client:
     """A thin GraphQL client for one Stash server."""
@@ -204,6 +228,19 @@ class Client:
             " scene { urls supported_scrapes } } }", timeout=60)
         return data.get("listScrapers") or []
 
+    def list_performer_scrapers(self):
+        """Every installed scraper that can produce a performer, name or URL alike.
+
+        The settings page's Fast-scraper multi-select is built from exactly this list -
+        never a hardcoded name - so a scraper the user does not have installed cannot
+        be picked, and one they remove disappears from the choices next time the
+        settings page loads (requirement 23).
+        """
+        data = self.call(
+            "query { listScrapers(types: [PERFORMER]) { id name"
+            " performer { urls supported_scrapes } } }", timeout=60)
+        return data.get("listScrapers") or []
+
     # -- scenes ------------------------------------------------------------
 
     def find_scene(self, scene_id):
@@ -221,6 +258,57 @@ class Client:
             " filter: {per_page: -1}) { scenes { %s } } }" % SCENE_BRIEF,
             {"ids": ids}, timeout=60)
         return ((data or {}).get("findScenes") or {}).get("scenes") or []
+
+    # -- performers ----------------------------------------------------------
+
+    def find_performer(self, performer_id):
+        data = self.call(
+            "query($id: ID!) { findPerformer(id: $id) { %s } }" % PERFORMER_FIELDS,
+            {"id": str(performer_id)}, timeout=30)
+        return data.get("findPerformer")
+
+    def find_performers_brief(self, performer_ids):
+        """Just enough about several performers to list them on the results page."""
+        ids = [str(one) for one in (performer_ids or [])]
+        if not ids:
+            return []
+        data = self.try_call(
+            "query($ids: [ID!]) { findPerformers(performer_filter: {}, ids: $ids,"
+            " filter: {per_page: -1}) { performers { %s } } }" % PERFORMER_BRIEF,
+            {"ids": ids}, timeout=60)
+        return ((data or {}).get("findPerformers") or {}).get("performers") or []
+
+    # -- performer scraping -------------------------------------------------
+
+    def scrape_single_performer(self, source, scrape_input, selection, timeout=None):
+        """`scrapeSinglePerformer` for one source. Returns a list of raw payloads.
+
+        Unlike scenes, there is no `performer_id` branch on the `scraper_id` side of
+        this resolver (`internal/api/resolver_query_scraper.go`) - only `query` (a name
+        search) or `performer_input` (a fragment built from data we already have, used
+        here only to aim an otherwise-ambiguous URL scrape at one scraper; see
+        `registry.performer_graphql_input`). FastDiscovery never asks for `performer_id`
+        on this path because Stash would not honour it.
+        """
+        query = ("query FDScrapePerformer($source: ScraperSourceInput!,"
+                 " $input: ScrapeSinglePerformerInput!) {"
+                 " scrapeSinglePerformer(source: $source, input: $input) { %s } }"
+                 % selection)
+        data = self.call(query, {"source": source, "input": scrape_input},
+                         timeout=timeout)
+        return data.get("scrapeSinglePerformer") or []
+
+    def scrape_performer_url(self, url, selection, timeout=None):
+        """`scrapePerformerURL`. Returns a list of zero or one payload.
+
+        Exactly the scene URL limitation (registry.py module docstring, L1): Stash
+        picks the handler itself and does not say which.
+        """
+        query = ("query FDScrapePerformerURL($url: String!) {"
+                 " scrapePerformerURL(url: $url) { %s } }" % selection)
+        data = self.call(query, {"url": url}, timeout=timeout)
+        result = data.get("scrapePerformerURL")
+        return [result] if result else []
 
     # -- scraping ----------------------------------------------------------
 
@@ -364,6 +452,32 @@ class Client:
             " { id updated_at } }", {"input": values}, timeout=120)
         return data.get("sceneUpdate")
 
+    def performer_update(self, values):
+        """The one write a performer Apply performs, and only from Apply.
+
+        Symmetric with `scene_update`: every selected field in a single mutation, so
+        the performer cannot end up half-applied.
+        """
+        data = self.call(
+            "mutation($input: PerformerUpdateInput!) { performerUpdate(input: $input)"
+            " { id updated_at } }", {"input": values}, timeout=120)
+        return data.get("performerUpdate")
+
+    def set_performer_organized(self, performer_id, organized=True):
+        """Organized=true, through the exact mechanism the PerformerOrganized plugin
+        uses (its `ui/api.js`): a plain `custom_fields` partial update, keyed
+        `"organized"`. Reusing the mechanism rather than re-deriving it means the two
+        plugins can never disagree about where the flag lives; FastDiscovery only ever
+        sets it (requirement: Organize off leaves the field alone), it never removes it,
+        so unchecking Organize in a review is simply not writing anything.
+        """
+        fields = {"partial": {"organized": bool(organized)}}
+        data = self.call(
+            "mutation($id: ID!, $fields: CustomFieldsInput!) { performerUpdate(input:"
+            " { id: $id, custom_fields: $fields }) { id custom_fields } }",
+            {"id": str(performer_id), "fields": fields}, timeout=30)
+        return data.get("performerUpdate")
+
     # -- jobs --------------------------------------------------------------
 
     def run_plugin_task(self, plugin_id, task_name, args=None):
@@ -436,6 +550,47 @@ class Schema:
         if repo is not None and names:
             repo.meta_set("scraped_scene_fields", json.dumps(sorted(names)))
             repo.meta_set("scraped_scene_fields_version", stamp)
+        return cls(names)
+
+
+class PerformerSchema(Schema):
+    """`Schema`, aimed at `ScrapedPerformer` instead of `ScrapedScene`.
+
+    Everything about trimming a selection to what the running server actually declares
+    is identical; only the type introspected and the field list differ, so this is a
+    two-line subclass rather than a parallel implementation.
+    """
+
+    INTROSPECT = 'query { __type(name: "ScrapedPerformer") { fields { name } } }'
+    FALLBACK = "name urls gender birthdate details"
+
+    @property
+    def selection(self):
+        if not self.field_names:
+            return self.FALLBACK
+        parts = []
+        for entry in _PERFORMER_FIELDS:
+            name = entry.split(" ", 1)[0].split("{", 1)[0].strip()
+            if name in self.field_names:
+                parts.append(entry)
+        return " ".join(parts) or self.FALLBACK
+
+    @classmethod
+    def load(cls, client, repo=None):
+        stamp = (client.version() or {}).get("hash") or "unknown"
+        if repo is not None:
+            cached = repo.meta_get("scraped_performer_fields")
+            if cached and repo.meta_get("scraped_performer_fields_version") == stamp:
+                try:
+                    return cls(json.loads(cached))
+                except (TypeError, ValueError):
+                    pass
+        data = client.try_call(cls.INTROSPECT, timeout=30)
+        names = [field["name"] for field
+                 in (((data or {}).get("__type") or {}).get("fields") or [])]
+        if repo is not None and names:
+            repo.meta_set("scraped_performer_fields", json.dumps(sorted(names)))
+            repo.meta_set("scraped_performer_fields_version", stamp)
         return cls(names)
 
 

@@ -25,24 +25,35 @@ URL = "URL"
 # scraper asked two different ways is two different answers.
 M_STASHBOX_FP = "STASHBOX_FP"        # scrapeSingleScene(stash_box_endpoint, scene_id)
 M_STASHBOX_QUERY = "STASHBOX_QUERY"  # scrapeSingleScene(stash_box_endpoint, query)
-M_URL = "URL"                        # scrapeSceneURL(url)
-M_URL_FRAGMENT = "URL_FRAGMENT"      # scrapeSingleScene(scraper_id, scene_input:{url})
+M_URL = "URL"                        # scrapeSceneURL(url) / scrapePerformerURL(url)
+M_URL_FRAGMENT = "URL_FRAGMENT"      # scrapeSingle*(scraper_id, *_input:{url})
+                                     # (shared between scenes and performers - the
+                                     # method name records *how* a source was reached,
+                                     # not what it fetched; url_sources() below builds
+                                     # these identically for either)
+M_PERFORMER_NAME = "PERFORMER_NAME"  # scrapeSinglePerformer(scraper_id, query: name)
 
 # How sure we are about who answered.
 CERTAIN = "CERTAIN"
 AMBIGUOUS = "AMBIGUOUS"
 
 
-def from_list_scrapers(rows):
-    """`listScrapers(types:[SCENE])` rows as our own records."""
+def from_list_scrapers(rows, content_key="scene"):
+    """`listScrapers(types:[SCENE|PERFORMER])` rows as our own records.
+
+    `content_key` picks which of a `Scraper`'s per-category specs to read - `scene` or
+    `performer` are both just a `{urls, supported_scrapes}` `ScraperSpec` on the same
+    `Scraper` row (`graphql/schema/types/scraper.graphql`), so one function serves both
+    without duplicating it.
+    """
     out = []
     for row in rows or []:
-        scene = row.get("scene") or {}
+        spec = row.get(content_key) or {}
         record = {
             "id": row.get("id") or "",
             "name": row.get("name") or row.get("id") or "",
-            "kinds": sorted(set(scene.get("supported_scrapes") or [])),
-            "url_patterns": [str(one) for one in (scene.get("urls") or []) if one],
+            "kinds": sorted(set(spec.get("supported_scrapes") or [])),
+            "url_patterns": [str(one) for one in (spec.get("urls") or []) if one],
         }
         if record["id"]:
             out.append(record)
@@ -227,3 +238,40 @@ def graphql_input(source, scene_id):
     if method == M_URL_FRAGMENT:
         return {"scene_input": {"url": source["url"], "urls": [source["url"]]}}
     raise ValueError("no scrape input for method %r" % method)
+
+
+def performer_graphql_input(source):
+    """The `ScrapeSinglePerformerInput` for a performer source.
+
+    `ScrapedPerformerInput` (unlike `ScrapedSceneInput`) has no singular `url`, only
+    `urls`, and there is no performer equivalent of `scene_id` on the `scraper_id`
+    branch of `scrapeSinglePerformer` - passing a fragment built from the current
+    performer's own urls is the only way to aim it at one scraper for a URL Stash's own
+    ambiguous `scrapePerformerURL` could not (registry.py module docstring, L1).
+    """
+    method = source["method"]
+    if method == M_URL_FRAGMENT:
+        return {"performer_input": {"urls": [source["url"]]}}
+    if method == M_PERFORMER_NAME:
+        return {"query": str(source.get("target") or "")}
+    raise ValueError("no performer scrape input for method %r" % method)
+
+
+def performer_name_sources(registry, scraper_ids, name):
+    """One source per performer-name scraper to invoke, for Fast or Full discovery.
+
+    `scraper_ids` is exactly the set the caller wants run *now* - the Fast list on a
+    first pass, or "everything installed minus what Fast already tried" on Full - never
+    computed here, so this stays a pure builder and the FAST/FULL policy lives in one
+    place (the runner). A scraper id no longer installed (removed since it was picked
+    in settings) is silently skipped rather than failing the run (requirement 23).
+    """
+    out = []
+    for scraper_id in scraper_ids:
+        entry = registry.by_id.get(scraper_id)
+        if entry is None:
+            continue
+        out.append({"type": "performer_name", "method": M_PERFORMER_NAME,
+                    "scraper_id": scraper_id, "name": entry["name"],
+                    "target": str(name or ""), "attribution": CERTAIN, "depth": 0})
+    return out

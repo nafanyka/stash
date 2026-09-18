@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import time
 
-from . import discovery, executor, logs, settings
+from . import discovery, executor, logs, performer_discovery, settings
 from .db import repo as R
 
 DISCOVER = "Discover scenes"
+DISCOVER_PERFORMERS = "Discover performers"
 MAINTENANCE = "Maintenance"
 SHOW_SETTINGS = "Show effective settings"
 
@@ -90,6 +91,91 @@ def task_discover(context, args):
             "errors": sum(one["errors"] for one in summaries)}
 
 
+def task_discover_performers(context, args):
+    """Discover for the performers named in the arguments - Fast, or Full on a run.
+
+    Two shapes, told apart by which args are present: `performer_ids` + `mode` starts
+    (or replaces) Fast runs for each; `run_id` (no `performer_ids`) tops up one
+    existing run with Full. Mixing many performers into one Full call makes no sense -
+    Full always names the one run it is topping up - so this task never batches Full
+    the way Fast batches performer ids.
+    """
+    context.repo.sweep_stale_runs(context.config["staleRunHours"])
+    runner = performer_discovery.make_runner(context.client, context.repo,
+                                             context.config)
+
+    if str(args.get("mode") or "").upper() == "FULL" or args.get("run_id"):
+        run_id = int(args["run_id"])
+        logs.info("performer run %s: going to Full discovery" % run_id)
+        logs.progress(0.0)
+        try:
+            summary = runner.run_full(run_id,
+                                      progress_hook=lambda state:
+                                      logs.progress(0.5))
+        except Exception as exc:
+            message = executor.describe_error(exc)
+            logs.error("performer run %s: Full failed - %s" % (run_id, message))
+            logs.progress(1.0)
+            return {"ok": False, "error": message}
+        logs.progress(1.0)
+        logs.info("performer run %s: Full finished - %s" % (run_id, summary["status"]))
+        return {"run_id": run_id, "status": summary["status"],
+                "results": summary["results"], "sources": summary["sources"],
+                "errors": summary["errors"], "seconds": summary["seconds"]}
+
+    raw = args.get("performer_ids") or args.get("performer_id") or ""
+    parts = ([str(one) for one in raw] if isinstance(raw, (list, tuple))
+             else str(raw).replace(";", ",").split(","))
+    performer_ids = []
+    for part in parts:
+        part = part.strip()
+        if part.isdigit() and int(part) not in performer_ids:
+            performer_ids.append(int(part))
+    if not performer_ids:
+        return {"ok": False, "error": "no performer ids given. Use the Fast "
+                                      "Discovery button on a performer's page."}
+
+    trigger = str(args.get("trigger") or "task")
+    replace = str(args.get("replace") or "1") not in ("0", "false", "no")
+    total = len(performer_ids)
+    started = time.monotonic()
+    summaries, failures = [], []
+    logs.info("Fast performer discovery: %d performer(s)" % total)
+    logs.progress(0.0)
+
+    for index, performer_id in enumerate(performer_ids):
+        def progress_hook(state, _index=index):
+            logs.progress((_index + 0.5) / float(total))
+            logs.info("performer %s: %d source(s), %d with results, %d error(s), "
+                      "%d url(s)" % (state.performer_id, state.sources, state.ok,
+                                    state.errors, state.url_total))
+
+        try:
+            summaries.append(runner.run_fast(performer_id, trigger=trigger,
+                                             job_id=args.get("job_id"),
+                                             replace=replace,
+                                             progress_hook=progress_hook))
+        except performer_discovery.PerformerMissing as exc:
+            failures.append({"performer_id": performer_id, "error": str(exc)})
+            logs.warning(str(exc))
+        except Exception as exc:
+            message = executor.describe_error(exc)
+            failures.append({"performer_id": performer_id, "error": message})
+            logs.error("performer %s: %s" % (performer_id, message))
+        logs.progress((index + 1) / float(total))
+
+    ready = len([one for one in summaries
+                if one["status"] in (R.READY_FOR_REVIEW, R.READY_WITH_ERRORS)])
+    elapsed = round(time.monotonic() - started, 1)
+    logs.info("finished: %d performer(s) in %ss, %d ready for review, %d failed"
+              % (total, elapsed, ready, len(failures)))
+    return {"performers": total, "ready": ready, "failed": failures,
+            "seconds": elapsed,
+            "results": sum(one["results"] for one in summaries),
+            "sources": sum(one["sources"] for one in summaries),
+            "errors": sum(one["errors"] for one in summaries)}
+
+
 def task_maintenance(context, args):
     """Sweep runs whose process died, drop unreferenced images, compact the file."""
     swept = context.repo.sweep_stale_runs(context.config["staleRunHours"])
@@ -133,6 +219,7 @@ def task_show_settings(context, args):
 
 TASKS = {
     DISCOVER: task_discover,
+    DISCOVER_PERFORMERS: task_discover_performers,
     MAINTENANCE: task_maintenance,
     SHOW_SETTINGS: task_show_settings,
 }

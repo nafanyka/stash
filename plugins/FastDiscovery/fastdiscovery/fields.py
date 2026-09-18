@@ -193,12 +193,37 @@ def extra_fields(schema_field_names):
     return out
 
 
+_LEADING_INT = re.compile(r"-?\d+")
+
+# Fields whose CURRENT value on a performer is a plain integer (Stash's height_cm /
+# weight columns) while every scraper reports the same thing as free text ("175 cm",
+# "58", "5'9\""). Comparing and writing them both through their leading integer means
+# "175" and "175 cm" register as the same answer instead of two different ones, and is
+# also exactly what apply.py needs to send back to Stash's typed column.
+_INT_PREFIX_FIELDS = ("height", "weight")
+
+
+def parse_int_prefix(value):
+    """The first integer in a value, as an int - or None. Unit-agnostic on purpose."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    match = _LEADING_INT.search(str(value))
+    return int(match.group()) if match else None
+
+
 def scalar_key(field, value):
     """The comparison key for a scalar value: equal keys mean the same answer."""
     if value is None:
         return ""
     if field.name == "date":
         return parse_date(value) or canon_text(value)
+    if field.name in _INT_PREFIX_FIELDS:
+        number = parse_int_prefix(value)
+        return str(number) if number is not None else canon_text(value)
     if field.name == "details":
         # Details differ by a trailing newline across half the scrapers; comparing the
         # canonical form keeps that from looking like two different descriptions.
@@ -208,6 +233,8 @@ def scalar_key(field, value):
 
 def display_scalar(field, value):
     """What the table shows for a scalar. The raw value, only ever reformatted."""
+    if field.name in _INT_PREFIX_FIELDS and isinstance(value, int):
+        return str(value)
     text = clean(value)
     if text is None:
         return None
@@ -265,6 +292,152 @@ def local_url(value):
             slash = rest.find("/")
             return rest[slash:] if slash >= 0 else "/"
     return text
+
+
+# --------------------------------------------------------------- performers
+#
+# The same one-table-drives-everything idea as FIELDS above, for `ScrapedPerformer`
+# instead of `ScrapedScene`. Kept as a second table rather than folded into FIELDS,
+# because a performer and a scene share almost no field names and merging the two
+# lists would just mean every reader had to filter by entity type anyway.
+#
+# Two real type mismatches between what a scraper returns and what Stash's own
+# `Performer`/`PerformerUpdateInput` store, both handled at apply time (never here,
+# where only the *shape* of merging matters):
+#   * `height`/`weight` arrive as free-text strings ("175 cm", "58"); Stash stores
+#     `height_cm`/`weight` as integers.
+#   * `gender`/`circumcised` arrive as free-text strings; Stash stores enums.
+# `aliases` arrives as one comma-delimited string (ScrapedPerformer's own shape,
+# matching the note on `ScrapedTag.alias_list` in the schema) and is written to
+# `alias_list` by splitting it, so it is modelled as SCALAR rather than invented as
+# a new list kind for one field.
+PERFORMER_FIELDS = (
+    Field("name", SCALAR, "Name", "name", "name", "name", 10),
+    Field("disambiguation", SCALAR, "Disambiguation", "disambiguation",
+          "disambiguation", "disambiguation", 20),
+    Field("aliases", SCALAR, "Aliases", "alias_list", "aliases", "alias_list", 30,
+          note="Comma-delimited, matching how a scraper reports them."),
+    Field("gender", SCALAR, "Gender", "gender", "gender", "gender", 40),
+    Field("birthdate", SCALAR, "Birthdate", "birthdate", "birthdate", "birthdate", 50),
+    Field("death_date", SCALAR, "Death date", "death_date", "death_date", "death_date",
+          60),
+    Field("country", SCALAR, "Country", "country", "country", "country", 70),
+    Field("ethnicity", SCALAR, "Ethnicity", "ethnicity", "ethnicity", "ethnicity", 80),
+    Field("eye_color", SCALAR, "Eye color", "eye_color", "eye_color", "eye_color", 90),
+    Field("hair_color", SCALAR, "Hair color", "hair_color", "hair_color", "hair_color",
+          100),
+    Field("height", SCALAR, "Height", "height_cm", "height", "height_cm", 110,
+          note="Stash stores centimetres as a whole number; a scraped value is parsed "
+               "for its leading digits."),
+    Field("weight", SCALAR, "Weight", "weight", "weight", "weight", 120,
+          note="Stash stores kilograms as a whole number; a scraped value is parsed "
+               "for its leading digits."),
+    Field("measurements", SCALAR, "Measurements", "measurements", "measurements",
+          "measurements", 130),
+    Field("fake_tits", SCALAR, "Fake tits", "fake_tits", "fake_tits", "fake_tits", 140),
+    Field("career_start", SCALAR, "Career start", "career_start", "career_start",
+          "career_start", 150),
+    Field("career_end", SCALAR, "Career end", "career_end", "career_end", "career_end",
+          160),
+    Field("tattoos", SCALAR, "Tattoos", "tattoos", "tattoos", "tattoos", 170),
+    Field("piercings", SCALAR, "Piercings", "piercings", "piercings", "piercings", 180),
+    Field("details", SCALAR, "Details", "details", "details", "details", 190),
+    Field("tags", ENTITY_LIST, "Tags", "tags", "tags", "tag_ids", 200, entity="tag"),
+    Field("urls", URL_LIST, "URLs", "urls", "urls", "urls", 210),
+    Field("image", IMAGE, "Image", None, "images", "image", 220,
+          note="A performer can have many candidate photos; exactly one is written."),
+    Field("stash_ids", STASH_ID, "Stash IDs", "stash_ids", None, "stash_ids", 230,
+          note="Recorded by the stash-box that matched the performer."),
+)
+
+PERFORMER_BY_NAME = {field.name: field for field in PERFORMER_FIELDS}
+PERFORMER_BY_RESULT_KEY = {field.result_key: field for field in PERFORMER_FIELDS
+                          if field.result_key}
+
+PERFORMER_IGNORED_RESULT_KEYS = {
+    "url",              # the deprecated singular; folded into urls
+    "url_list",
+    "image",            # the deprecated singular cover; folded into the images row
+    "remote_site_id",   # folded into stash_ids together with the box's endpoint
+    "twitter", "instagram",   # deprecated; folded into urls by scrapers that set them
+    "career_length",    # deprecated spelling of career_start/career_end
+    "__typename",
+}
+
+
+def performer_extra_fields(schema_field_names):
+    """Rows for ScrapedPerformer fields this version of FastDiscovery does not model.
+
+    Exactly `extra_fields`'s reasoning, for the performer field set: a field Stash adds
+    later - or one deliberately left out above, like `penis_length` or `circumcised` -
+    shows up as a read-only row with its values and provenance instead of vanishing.
+    """
+    known = set(PERFORMER_BY_RESULT_KEY) | PERFORMER_IGNORED_RESULT_KEYS
+    out = []
+    for index, name in enumerate(sorted(schema_field_names or ())):
+        if name in known:
+            continue
+        out.append(Field(name, SCALAR, name.replace("_", " ").title(),
+                         None, name, None, 900 + index,
+                         note="Not known to this version of FastDiscovery: shown for "
+                              "review, not written."))
+    return out
+
+
+def performer_snapshot(performer):
+    """What Stash already knows about a performer, shaped like `scene_snapshot`.
+
+    `values` is keyed by field name and holds the raw current value - the CURRENT
+    column built exactly like every other column - plus enough of the performer's own
+    state (its URLs, for URL-discovery seeding, and a display name) for the run to work
+    from.
+    """
+    from . import urls as urls_module
+
+    performer = performer or {}
+    seen, performer_urls = set(), []
+    for value in (performer.get("urls") or []):
+        record = urls_module.normalize(value)
+        if record and record["key"] not in seen:
+            seen.add(record["key"])
+            performer_urls.append(record)
+
+    name = clean(performer.get("name"))
+    alias_list = performer.get("alias_list") or []
+
+    return {
+        "performer_id": str(performer.get("id") or ""),
+        "name": name,
+        "display_name": name or ("performer " + str(performer.get("id") or "?")),
+        "search_term": name,
+        "updated_at": performer.get("updated_at"),
+        "urls": performer_urls,
+        "image": clean(performer.get("image_path")),
+        "values": {
+            "name": name,
+            "disambiguation": clean(performer.get("disambiguation")),
+            "aliases": ", ".join(str(one).strip() for one in alias_list if one),
+            "gender": clean(performer.get("gender")),
+            "birthdate": clean(performer.get("birthdate")),
+            "death_date": clean(performer.get("death_date")),
+            "country": clean(performer.get("country")),
+            "ethnicity": clean(performer.get("ethnicity")),
+            "eye_color": clean(performer.get("eye_color")),
+            "hair_color": clean(performer.get("hair_color")),
+            "height_cm": performer.get("height_cm"),
+            "weight": performer.get("weight"),
+            "measurements": clean(performer.get("measurements")),
+            "fake_tits": clean(performer.get("fake_tits")),
+            "career_start": clean(performer.get("career_start")),
+            "career_end": clean(performer.get("career_end")),
+            "tattoos": clean(performer.get("tattoos")),
+            "piercings": clean(performer.get("piercings")),
+            "details": clean(performer.get("details")),
+            "tags": performer.get("tags") or [],
+            "urls": [record["url"] for record in performer_urls],
+            "stash_ids": performer.get("stash_ids") or [],
+        },
+    }
 
 
 def scene_snapshot(scene):
