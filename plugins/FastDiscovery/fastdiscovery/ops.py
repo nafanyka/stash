@@ -299,6 +299,11 @@ def op_reject_column(context, args):
     rejected = set(run.get("rejected_columns") or [])
     if args.get("rejected", True):
         rejected.add(column)
+        # A result that matched the wrong scene is wrong about the URLs it handed
+        # onward too, so whatever this column's result led to through URL discovery
+        # is struck out with it rather than left for the reviewer to notice one by
+        # one.
+        rejected |= merge_module.descendant_columns(context.repo, run["id"], column)
     else:
         rejected.discard(column)
 
@@ -528,6 +533,7 @@ def op_performer_reject_column(context, args):
     rejected = set(run.get("rejected_columns") or [])
     if args.get("rejected", True):
         rejected.add(column)
+        rejected |= merge_module.descendant_columns(context.repo, run["id"], column)
     else:
         rejected.discard(column)
 

@@ -240,7 +240,12 @@ class TestOneFailureDoesNotStopTheRun:
 
 
 class TestUrlRecursion:
-    """Specification section 4 / tests H & I: cycles stop, maxDepth is respected."""
+    """Specification section 4 / tests H & I: cycles stop, maxDepth is respected.
+
+    URL expansion is Full's job: Fast only seeds the frontier so the button stays
+    quick (requirement: no URL parsing in Fast). Each test runs Fast then tops the
+    same run up with Full before checking what the frontier actually did.
+    """
 
     def test_a_cycle_terminates(self, fd_repo):
         url_a = "https://pshared.com/a"
@@ -250,7 +255,8 @@ class TestUrlRecursion:
             "purl:" + url_b: scraped_performer(name="Bonnie Alex", urls=[url_a]),
         })
         config = perf_config([], performerMaxUrlDepth=5)
-        summary = runner(client, fd_repo, config).run_fast(42)
+        one = runner(client, fd_repo, config)
+        summary = one.run_full(one.run_fast(42)["run_id"])
         # Finishes at all - a real cycle would hang or grow without bound otherwise.
         assert summary["status"] in (R.READY_FOR_REVIEW, R.READY_WITH_ERRORS)
         urls = fd_repo.urls_of(summary["run_id"])
@@ -266,10 +272,22 @@ class TestUrlRecursion:
                 name="Bonnie Alex", urls=[chain[i + 1]])
         client.responses = responses
         config = perf_config([], performerMaxUrlDepth=2)
-        summary = runner(client, fd_repo, config).run_fast(42)
+        one = runner(client, fd_repo, config)
+        summary = one.run_full(one.run_fast(42)["run_id"])
         urls = fd_repo.urls_of(summary["run_id"])
         assert max(u["depth"] for u in urls) <= 2 + 1
         assert any(u["state"] == R.U_SKIPPED_DEPTH for u in urls)
+
+    def test_fast_alone_never_scrapes_a_url(self, fd_repo):
+        url_a = "https://pshared.com/a"
+        client = FakeStash(performer=dict(PERFORMER, urls=[url_a]), responses={
+            "purl:" + url_a: scraped_performer(name="Bonnie Alex"),
+        })
+        config = perf_config([])
+        summary = runner(client, fd_repo, config).run_fast(42)
+        assert not any(call[0] == "scrape_performer_url" for call in client.calls)
+        urls = fd_repo.urls_of(summary["run_id"])
+        assert urls and all(u["state"] == R.U_PENDING for u in urls)
 
 
 class TestSharedUrlProvenance:

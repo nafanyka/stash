@@ -21,11 +21,14 @@ to this module:
   scraper on Full) - nothing here has to remember which scrapers ran; it is read
   back from the sources already stored.
 
-URL discovery afterwards - the frontier, the loop guard, the depth limit, aiming an
-otherwise-ambiguous URL scrape at every scraper that also supports FRAGMENT - is the
-exact same mechanism scenes use (`registry.Registry.url_sources`, `urls.py`,
-`executor.py`), just pointed at a `Registry` built from performer scrapers and at
-`scrapePerformerURL`/`scrapeSinglePerformer` instead of the scene equivalents.
+URL discovery - the frontier, the loop guard, the depth limit, aiming an otherwise-
+ambiguous URL scrape at every scraper that also supports FRAGMENT - is the exact same
+mechanism scenes use (`registry.Registry.url_sources`, `urls.py`, `executor.py`), just
+pointed at a `Registry` built from performer scrapers and at
+`scrapePerformerURL`/`scrapeSinglePerformer` instead of the scene equivalents. Fast
+skips it entirely - it seeds the URL frontier but never walks it, so the button stays
+quick - and Full is what actually expands it, starting from depth 0, so Fast's own
+seeded URLs get their first pass then too.
 """
 
 from __future__ import annotations
@@ -248,7 +251,14 @@ class PerformerRunner:
             self._seed_urls(state, registry)
             self._run_name_and_box_waves(state, registry, scraper_ids,
                                          snapshot["search_term"], progress_hook)
-            self._expand_urls(state, registry, progress_hook)
+            # Fast is meant to be fast: URL discovery - following whatever the boxes
+            # and scrapers just returned through every scraper that can read those
+            # pages - is real work, and it is exactly what Full is for. The seeded
+            # URLs are not lost: they sit PENDING in the database and Full's own
+            # `_expand_urls` call picks up every depth from scratch, this run's
+            # included.
+            if mode != "FAST":
+                self._expand_urls(state, registry, progress_hook)
             status = self._final_status(state)
             self._finish(run_id, state, status)
         except Exception as exc:

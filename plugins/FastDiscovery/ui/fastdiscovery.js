@@ -696,9 +696,15 @@
     // `width` is the one override the performer image preview setting needs: a fixed
     // pixel width, height following automatically so nothing is distorted
     // (requirement 11). Scene call sites never pass it, so their sizing - the
-    // percentage/max-height rules in the CSS - is completely unaffected.
+    // percentage/max-height rules in the CSS - is completely unaffected. `maxHeight`
+    // must be cleared here too: `.fd-thumb-gallery`'s own max-height/object-fit pair
+    // is a fallback for when no width is given, and left in place it caps a tall
+    // photo's height and then, because object-fit still has to fill that box, its
+    // rendered width shrinks below the fixed width to keep the aspect ratio - which
+    // is exactly "same width" turning into "same height instead" for tall pictures.
     var style = props.width
-      ? { width: props.width + "px", maxWidth: props.width + "px", height: "auto" }
+      ? { width: props.width + "px", maxWidth: props.width + "px", maxHeight: "none",
+          height: "auto" }
       : undefined;
     // The placeholders carry the size classes too, so a cell does not change width
     // when its picture arrives.

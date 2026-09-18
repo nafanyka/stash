@@ -359,6 +359,64 @@ class TestRejectingOneOfSeveralResults:
         assert {value["display"] for value in dates["values"]} == {"2024-01-17"}
 
 
+class TestRejectingCascadesToUrlDescendants:
+    """A source that got the wrong scene is wrong about the URLs it handed onward
+    too, so rejecting it takes those URL-derived columns with it."""
+
+    # Deliberately not `fd_scene`'s own "https://sitea.com/scene/1": that URL is
+    # already seeded from the scene itself, so re-reporting it from StashDB would
+    # not create a new discovery edge - the URL would just already exist, with no
+    # parent to speak of. A URL that only StashDB's result mentions is what actually
+    # exercises "discovered by this source".
+    URL_A = "https://sitea.com/scene/999"
+
+    def test_rejecting_a_source_rejects_what_its_url_led_to(self, fd_repo, fd_config,
+                                                             fd_scene):
+        ctx, client = context(fd_repo, fd_config, fd_scene, {
+            STASHDB: scraped(title="Right", urls=[self.URL_A]),
+            self.URL_A: scraped(title="Wrong Scene Entirely"),
+        })
+        discovery.Runner(client, fd_repo, fd_config).run(295)
+        run = fd_repo.latest_run(295)
+        review = ops.dispatch(ctx, "review.get", {"run_id": run["id"]})
+        stashdb = next(c for c in review["columns"] if c["name"] == "StashDB")
+        child = next(c for c in review["columns"] if c["parent"] == stashdb["id"])
+
+        after = ops.dispatch(ctx, "review.reject_column",
+                             {"run_id": run["id"], "column_id": stashdb["id"]})
+
+        rejected_ids = {c["id"] for c in after["columns"] if c["rejected"]}
+        assert stashdb["id"] in rejected_ids
+        assert child["id"] in rejected_ids
+        titles = next(r for r in after["rows"] if r["field"] == "title")
+        shown = {v["display"] for v in titles["values"]}
+        assert "Right" not in shown and "Wrong Scene Entirely" not in shown
+
+    def test_restoring_the_parent_leaves_the_cascaded_child_rejected(
+            self, fd_repo, fd_config, fd_scene):
+        ctx, client = context(fd_repo, fd_config, fd_scene, {
+            STASHDB: scraped(title="Right", urls=[self.URL_A]),
+            self.URL_A: scraped(title="Wrong Scene Entirely"),
+        })
+        discovery.Runner(client, fd_repo, fd_config).run(295)
+        run = fd_repo.latest_run(295)
+        review = ops.dispatch(ctx, "review.get", {"run_id": run["id"]})
+        stashdb = next(c for c in review["columns"] if c["name"] == "StashDB")
+        child = next(c for c in review["columns"] if c["parent"] == stashdb["id"])
+        ops.dispatch(ctx, "review.reject_column",
+                     {"run_id": run["id"], "column_id": stashdb["id"]})
+
+        # Restoring only the one column that was struck out by hand - the cascade is
+        # a consequence of the parent being rejected, not an independent decision the
+        # reviewer made about the child, so it is not force-restored with it.
+        after = ops.dispatch(ctx, "review.reject_column",
+                             {"run_id": run["id"], "column_id": stashdb["id"],
+                              "rejected": False})
+        rejected_ids = {c["id"] for c in after["columns"] if c["rejected"]}
+        assert stashdb["id"] not in rejected_ids
+        assert child["id"] in rejected_ids
+
+
 def row(review, field):
     return next(entry for entry in review["rows"] if entry["field"] == field)
 
