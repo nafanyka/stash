@@ -13,24 +13,28 @@
       "fingerprint": "334139f73a67f04ea0b854972297fe2ac700573a4cf275e960cf7420ab53a8fe",
       "version": "1.0.3"
     },
-    "plugins/ScrapeAllSettings": {
-      "fingerprint": "5922dfafec2cb1d89b445f3389fd0e9514d4be7922b0906f7f93636f466e8f5d",
-      "version": "1.1"
+    "plugins/path_vr_tagger": {
+      "fingerprint": "4229f0c5a42e8415a4356ad37863c0b0cf9082ac8af22473bccd65d3bcc224e6",
+      "version": "1.0.0"
     },
-    "plugins/ScrapeDiscovery": {
-      "fingerprint": "03c8e7b349c5e453b099931ba4323a07beddf92f7fa8e3a2569146357d8ea451",
-      "version": "0.1.0"
+    "plugins/performer-url-cleanup": {
+      "fingerprint": "557342a25870db2e61aac9ba99ade8348636b8db3ba3d31437ee2897a466492b",
+      "version": "1.0.0"
     },
-    "scrapers/FastDiscovery": {
-      "fingerprint": "cb2164e99a219785000c667bc54e57a65ada6091e28c32413337fd1349c9f74c",
+    "plugins/stashdb-tag-sync": {
+      "fingerprint": "f84eb58fd4e765a50d83a3c8fd70c1afc7cb3cc11f58f5f101d8ce50e2e68e3b",
+      "version": "1.0.4"
+    },
+    "scrapers/Babepedia": {
+      "fingerprint": "839d55b258a752adc0546cdab67233985698a827ad59cfa7c024cf7a2255b072",
       "version": "1"
     },
-    "scrapers/ScrapeAll": {
-      "fingerprint": "28b08dead0fa04214571ac5a07def71ce12b4e049d0efc6b9dbbed2a20243b04",
-      "version": "4"
+    "scrapers/FastDiscovery": {
+      "fingerprint": "e2fcd7f47c2121a1b964b91f177dcf221233868828b1dd1873a5a4f21655f496",
+      "version": "1"
     },
-    "scrapers/ScrapeDiscovery": {
-      "fingerprint": "62fa9f5c970284c2b991f460dcd4d357bdd1d5878fc1afb18cbba34182d5569f",
+    "scrapers/IAFD": {
+      "fingerprint": "3a21984f7e2d963f32fece5165ab1323e92eacb3a91079158b1df2f0bb875e4e",
       "version": "1"
     }
   }

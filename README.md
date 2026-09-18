@@ -8,12 +8,11 @@ published as an installable Stash **source** via GitHub Pages.
 ```
 plugins/<Name>/<Name>.yml     plugin manifest (+ .py / .js / README.md next to it)
 scrapers/<Name>/<Name>.yml    scraper manifest (+ .py next to it)
-  scrapers/ScrapeAll/         probes every non-URL scene source, merges the hits
-  scrapers/ScrapeDiscovery/   thin entry point into the ScrapeDiscovery plugin
   scrapers/FastDiscovery/     thin entry point into the FastDiscovery plugin
-  plugins/ScrapeAllSettings/  the settings ScrapeAll obeys (no scraping of its own)
-  plugins/ScrapeDiscovery/    runs many installed scrapers per scene, keeps every
-                              answer in its own database, changes nothing
+  scrapers/Babepedia/         performer scraper, from CommunityScrapers - kept here
+                              after it stopped receiving updates from that source
+  scrapers/IAFD/              performer/scene/movie scraper, from CommunityScrapers -
+                              same story; needs py_common installed separately
   plugins/FastDiscovery/      runs every stash-box and every URL scraper reachable
                               from a scene, then one review table; nothing is
                               written until you apply, and the results are then gone
@@ -23,8 +22,11 @@ scrapers/<Name>/<Name>.yml    scraper manifest (+ .py next to it)
   plugins/MyPerformerBodyCalculator/  a fork of stg-annon's Performer Body Calculator:
                               reads metric bust sizes correctly, and splits the run into
                               Add New and Full Update
+  plugins/path_vr_tagger/     tags a scene VR/NonVR from its file path, on save
+  plugins/performer-url-cleanup/  normalises, deduplicates and sorts performer URLs
+  plugins/stashdb-tag-sync/   syncs tags from StashDB into the local instance
 common/python/stash_common/   shared helpers, bundled into packages that import them
-docs/                         architecture, schema and dev notes for both plugins
+docs/                         architecture and dev notes for FastDiscovery
 tests/                        pytest suite, no Stash server needed
 dist/plugins/index.yml        generated source index — the URL Stash subscribes to
 dist/scrapers/index.yml       generated source index
@@ -38,22 +40,14 @@ reports what changed, runs the tests, checks the plugin JavaScript parses, repac
 `dist/`, and remembers what it built so the next run can tell you what moved. Commit the
 source and `dist/` together.
 
-Three answers to one question — *what does anything know about this scene?* — from
-different directions:
-
-| | Asks | Returns | Writes |
-| --- | --- | --- | --- |
-| **ScrapeAll** | every non-URL scene source | one merged scene, for Stash's own dialog | when you save the dialog |
-| **ScrapeDiscovery** | far more sources, including every fragment and name scraper | scored candidates in its own database | nothing until you pick |
-| **FastDiscovery** | every configured stash-box, then every scraper reachable from the scene's URLs, recursively | one review table, one column per answer | nothing until you apply, and the results are deleted the moment you decide |
-
-Use ScrapeAll when you expect one good answer, ScrapeDiscovery when you do not know which
-scraper — if any — knows the scene, and FastDiscovery when you want everything your
-install knows about a scene in front of you at once. See
-[`plugins/ScrapeDiscovery/README.md`](plugins/ScrapeDiscovery/README.md) and
+**FastDiscovery** answers one question — *what does anything I have installed know
+about this scene (or performer)?* It asks every configured stash-box, then every
+scraper reachable from there through URLs, recursively, and puts every answer in one
+review table, one column per source. Nothing is written until you apply, and the
+results are deleted the moment you decide. See
 [`plugins/FastDiscovery/README.md`](plugins/FastDiscovery/README.md).
 
-Separate from all three, and about performers rather than scenes:
+Separate from that, and about performers rather than scenes:
 **[PerformerOrganized](plugins/PerformerOrganized/README.md)** adds the *Organized*
 flag Stash gives scenes, galleries and images to performers as well — a switch on the
 performer page, an icon on the card, bulk *Set organized*, and a server-side
@@ -127,10 +121,9 @@ pip install pytest pyyaml
 python -m pytest tests/
 ```
 
-Covers ScrapeDiscovery and FastDiscovery, and needs no Stash server: the Stash API is
-faked, so the engines, caching, normalisation, the merge matrix and the apply path are
-all exercised offline. FastDiscovery's tests are `test_fd_*.py` and include every
-acceptance case from its specification.
+Covers FastDiscovery (`test_fd_*.py`) and needs no Stash server: the Stash API is
+faked, so the engine, the merge matrix and the apply path are all exercised offline,
+including every acceptance case from its specification.
 
 ## Building locally
 

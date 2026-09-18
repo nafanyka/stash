@@ -31,12 +31,3 @@ Usually none. Scrapers, unlike plugins, are not handed the server's connection d
 if Stash is not on `localhost:9999`, or has authentication enabled, copy
 `config.ini.example` to `config.ini` next to the script and fill it in. `STASH_URL` and
 `STASH_API_KEY` in the environment take precedence.
-
-## Not to be confused with
-
-- **ScrapeAll** — a scraper that probes many sources and returns one merged scene for Stash
-  to save. Useful when you expect one good answer.
-- **ScrapeDiscovery** — an orchestrator that probes far more sources, including every
-  fragment and name scraper installed, and scores what comes back.
-- **FastDiscovery** — every stash-box plus everything reachable from the scene's URLs,
-  compared side by side and applied by hand.

@@ -6,8 +6,7 @@ needed anywhere: `FakeStash` answers the handful of calls the code under test ma
 raises AttributeError for anything else, which is the point - a test should not silently
 exercise a call this fake has quietly stubbed out.
 
-The pytest fixtures built on top of this live in conftest.py, which is shared with the
-ScrapeDiscovery tests.
+The pytest fixtures built on top of this live in conftest.py.
 """
 
 from __future__ import annotations

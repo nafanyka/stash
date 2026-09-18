@@ -10,8 +10,8 @@
       the moment you decide. Also does the same for performers: every performer-name
       scraper you pick (Fast), or every installed one (Full), each result kept as
       its own column, URLs followed the same way, reviewed the same way.'
-  version: 0.4.3-8c49428
-  date: '2026-09-18 16:11:35'
+  version: 0.4.3-bb1002f
+  date: '2026-09-18 16:37:49'
   path: FastDiscovery.zip
   sha256: 2f43f50ccf91f92d85ee9ab48208ef3b0b40f973fc37af96c6197407282fe39f
   requires: []
@@ -28,6 +28,24 @@
   path: MyPerformerBodyCalculator.zip
   sha256: c7f1d1ed150fecc1b470101557cc5e30a220b6eb20036063fdf214398770bed2
   requires: []
+- id: path_vr_tagger
+  name: Path VR Tagger
+  metadata:
+    description: Automatically tags scenes as VR or NonVR based on file path.
+  version: 1.0.0-0000000
+  date: '1970-01-01 00:00:00'
+  path: path_vr_tagger.zip
+  sha256: 4b60b2801c6504dc0a1f54b997649ac84b9aee6d28d2f4b401526ee21092fa5b
+  requires: []
+- id: performer-url-cleanup
+  name: Performer URL Cleanup
+  metadata:
+    description: Normalises, deduplicates, and sorts performer URLs
+  version: 1.0.0-0000000
+  date: '1970-01-01 00:00:00'
+  path: performer-url-cleanup.zip
+  sha256: fedf71885f0cf66b0557d67a7af6d548ca5d459622f785aed70bdb1edd3d25cc
+  requires: []
 - id: PerformerOrganized
   name: Performer Organized
   metadata:
@@ -41,26 +59,12 @@
   path: PerformerOrganized.zip
   sha256: b9dceb0dabd3a60810b9bc0d9b75b065cdd9f60ad44446a8dad1a8b4080ada0b
   requires: []
-- id: ScrapeAllSettings
-  name: ScrapeAll Settings
+- id: stashdb-tag-sync
+  name: StashDB Tag Synchroniser
   metadata:
-    description: Settings the ScrapeAll scraper reads before it writes anything. This
-      plugin has no scraping logic of its own; it exists because a scraper has nowhere
-      to keep configuration a user can edit.
-  version: 1.1-ef155bc
-  date: '2026-08-23 14:45:53'
-  path: ScrapeAllSettings.zip
-  sha256: 8558444abba58c12841137c5be1f95b41cef8420be6363d6f4b4645c2596104e
-  requires: []
-- id: ScrapeDiscovery
-  name: ScrapeDiscovery
-  metadata:
-    description: Tries the scrapers you already have installed against a scene, follows
-      the URLs they return, and keeps every answer in its own database so you can
-      review the candidates and apply the parts you want. It never writes to a scene
-      on its own.
-  version: 0.1.0-f262805
-  date: '2026-08-25 08:28:34'
-  path: ScrapeDiscovery.zip
-  sha256: 16ef4d229e61dce838cb18cdaa32bb4955d9145b2477c7483673e25d5eae6271
+    description: Synchronises tags from StashDB to your local Stash instance via GraphQL
+  version: 1.0.4-0000000
+  date: '1970-01-01 00:00:00'
+  path: stashdb-tag-sync.zip
+  sha256: 7719eec86b311057d5d1d07251f759af4e5621bd93cf8f936056a1cba7d0f134
   requires: []

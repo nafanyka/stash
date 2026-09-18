@@ -1,0 +1,22 @@
+name: Path VR Tagger
+description: Automatically tags scenes as VR or NonVR based on file path.
+version: 1.0.0
+url: https://github.com/nafanyka/stash
+
+exec:
+  - python3
+  - "{pluginDir}/path_vr_tagger.py"
+
+interface: raw
+
+hooks:
+  - name: Scene.Update.Post
+    description: Update VR/NonVR tag based on scene file path
+  - name: Scene.Create.Post
+    description: Set VR/NonVR tag based on scene file path
+
+tasks:
+  - name: Process All Scenes
+    description: Apply VR/NonVR tags to all existing scenes
+    defaultArgs:
+      mode: process_all

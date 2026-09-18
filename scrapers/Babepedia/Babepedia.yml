@@ -1,0 +1,23 @@
+# Lines starting with "#" are read by the build to fill the source index. Stash
+# ignores them; a scraper config has no version/description field of its own and
+# rejects unknown keys, so they cannot live in the config proper.
+# version: 1
+# description: Performer scraper for babepedia.com. Originally from CommunityScrapers; kept and maintained here after it stopped being updated upstream.
+
+name: _Babepedia
+performerByURL:
+  - action: script
+    url:
+     - www.babepedia.com/babe/
+    script:
+      - python
+      - Babepedia.py
+      - performer-by-url
+performerByName:
+  action: script
+  script:
+    - python
+    - Babepedia.py
+    - performer-by-name
+
+# Last Updated March 9, 2026
