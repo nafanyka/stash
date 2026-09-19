@@ -821,7 +821,7 @@
     // longer matters for picking one, and every candidate appears exactly once
     // (`row.values` already de-duplicates a photo two sources both offered) rather
     // than once per group it happened to belong to.
-    var flatPickItems = props.flatPickStep
+    var flatPickItems = (props.flatPickStep && phase[0] === "pick")
       ? row.values.filter(function (candidate) { return shortlist[0].has(candidate.id); })
       : null;
 
