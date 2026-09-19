@@ -24,6 +24,7 @@ rebuilt at any time and always reflects the current scene.
 from __future__ import annotations
 
 import hashlib
+import re
 
 from . import fields, urls as urls_module
 from .db import repo as R
@@ -82,6 +83,70 @@ def answers_to(row, canon):
 
 def column_id(source_id, ordinal=0):
     return "s%s_%s" % (source_id, ordinal)
+
+
+_COLUMN_ID = re.compile(r"^s(\d+)_\d+$")
+
+
+def _source_id_of(column):
+    match = _COLUMN_ID.match(str(column or ""))
+    return int(match.group(1)) if match else None
+
+
+def cascade_rejection(repo, run_id, column, already_rejected=()):
+    """Columns to reject alongside `column`: the URL-derived descendants of every
+    currently-rejected source (this one included), except any whose own URL is still
+    independently vouched for by a result from a source outside that set
+    (requirement: a wrong-name result is wrong about the URLs it led to as well, but
+    not about a URL some other, still-good result also mentions - that URL earned
+    its place on its own).
+
+    Re-derived from the *whole* rejected set on every call, not just walked from the
+    newest addition: two sources can share one URL, spared the first time because
+    the other one still vouched for it, and only actually doomed once that second
+    source is rejected too, in a separate call this function has no memory of unless
+    it looks at the full set again each time.
+
+    A spared branch stops the walk right there: its own children are that source's to
+    keep or lose on their own future merits, not something this particular rejection
+    gets to decide just because it happens to be upstream of them in one discovery
+    path among several.
+    """
+    sources = {source["id"]: source for source in repo.sources_of(run_id)}
+    children = {}
+    for source in sources.values():
+        children.setdefault(source.get("parent_source_id"), []).append(source["id"])
+
+    results_by_source = {}
+    for result in repo.results_of(run_id):
+        results_by_source.setdefault(result["source_id"], []).append(result)
+
+    doomed = set()
+    for one in set(already_rejected) | {column}:
+        source_id = _source_id_of(one)
+        if source_id is not None:
+            doomed.add(source_id)
+
+    to_reject = set()
+    stack = []
+    for source_id in doomed:
+        stack.extend(children.get(source_id, []))
+    while stack:
+        source_id = stack.pop()
+        if source_id in doomed:
+            continue
+        source = sources.get(source_id)
+        if source is None:
+            continue
+        url_key = source.get("url_key") or source.get("url")
+        vouched_by = repo.source_ids_mentioning(run_id, url_key) if url_key else set()
+        if vouched_by - doomed:
+            continue  # something outside this cascade still mentions this URL
+        doomed.add(source_id)
+        for result in results_by_source.get(source_id, []):
+            to_reject.add(column_id(source_id, result["ordinal"]))
+        stack.extend(children.get(source_id, []))
+    return to_reject
 
 
 def _build_columns(repo, run, rejected, current_values):

@@ -233,7 +233,29 @@ _PERFORMERS = [
     "CREATE INDEX idx_result_images_result ON result_images(result_id, ordinal)",
 ]
 
-MIGRATIONS = [_INITIAL, _REJECTED_SOURCES, _REJECTED_COLUMNS, _PERFORMERS]
+# 5 - every result that mentioned a URL, not just the one that gets to scrape it.
+#
+# `urls.discovered_by_result_id` is a side effect of the loop guard: the FIRST result
+# to mention a URL claims it via the unique index on (run_id, norm_key), and every
+# later mention of the same URL is simply dropped - correct for "scrape it once", but
+# wrong for judging a rejection's reach. If a wrong-name result and a right-name
+# result both happen to mention the same follow-up URL, rejecting the wrong one must
+# not take the URL's own result down with it just because it mentioned it first. This
+# table keeps every mention, not only the winning one, so a rejection can check
+# "does anything I am NOT rejecting still vouch for this URL" before cascading into it.
+_URL_MENTIONS = [
+    """
+    CREATE TABLE url_mentions (
+        run_id    INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+        norm_key  TEXT NOT NULL,
+        result_id INTEGER NOT NULL REFERENCES results(id) ON DELETE CASCADE,
+        PRIMARY KEY (run_id, norm_key, result_id)
+    )
+    """,
+    "CREATE INDEX idx_url_mentions_key ON url_mentions(run_id, norm_key)",
+]
+
+MIGRATIONS = [_INITIAL, _REJECTED_SOURCES, _REJECTED_COLUMNS, _PERFORMERS, _URL_MENTIONS]
 SCHEMA_VERSION = len(MIGRATIONS)
 
 

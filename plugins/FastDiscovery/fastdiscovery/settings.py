@@ -94,12 +94,22 @@ def _spec():
             "credentials, and never dumps a full payload."),
         "performerFastScrapers": (
             STRING, "[]",
-            "JSON array of performer-name-scraper ids and/or stash-boxes "
-            "(stashbox:<endpoint>) to run for Fast performer discovery. Edited from "
-            "the FastDiscovery settings page, which offers a multi-select built from "
-            "the performer scrapers Stash has installed and the stash-boxes it has "
-            "configured - never a hardcoded list. Full performer discovery runs "
-            "every installed scraper and configured stash-box not in this set."),
+            "JSON array (or a plain comma-separated list) of performer-name-scraper "
+            "ids and/or names to run for Fast performer discovery. Stash-boxes are "
+            "not part of this setting - they are always asked, on both Fast and "
+            "Full, the same way scene discovery always asks every configured box. "
+            "Edited from the FastDiscovery settings page, which offers a multi-"
+            "select built from the performer scrapers Stash has installed - never a "
+            "hardcoded list. Full performer discovery runs every installed scraper "
+            "not in this set and not in performerFastBlacklist."),
+        "performerFastBlacklist": (
+            STRING, "[]",
+            "JSON array (or a plain comma-separated list) of performer-name-scraper "
+            "ids and/or names that Fast performer discovery must never use - not by "
+            "name search, and not by following a URL that happens to match one of "
+            "them either. For a scraper whose site is unreliable or not worth the "
+            "wait on the quick pass. Full ignores this list entirely: it exists to "
+            "make Fast faster, not to remove a scraper from the review altogether."),
         "performerMaxUrlDepth": (
             NUMBER, 3,
             "How far to follow URLs discovered from a performer's scraped results. "

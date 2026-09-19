@@ -594,6 +594,28 @@ class Repo:
         return self.connection.execute(
             "SELECT COUNT(*) FROM urls WHERE run_id = ?", (int(run_id),)).fetchone()[0]
 
+    def add_url_mention(self, run_id, norm_key, result_id):
+        """Every result that mentioned this URL, not only the one credited with
+        discovering it. `urls.discovered_by_result_id` keeps just the first mention -
+        right for the loop guard, which only needs to scrape a URL once - but wrong
+        for judging how far a rejection should reach: a second, independent result
+        can still vouch for the same URL even after the first one that mentioned it
+        is struck out.
+        """
+        with self.connection:
+            self.connection.execute(
+                "INSERT OR IGNORE INTO url_mentions(run_id, norm_key, result_id)"
+                " VALUES(?,?,?)", (int(run_id), str(norm_key), int(result_id)))
+
+    def source_ids_mentioning(self, run_id, norm_key):
+        """Every source whose own result mentioned this URL, first claimant or not."""
+        rows = self.connection.execute(
+            "SELECT DISTINCT r.source_id FROM url_mentions m"
+            " JOIN results r ON r.id = m.result_id"
+            " WHERE m.run_id = ? AND m.norm_key = ?", (int(run_id), str(norm_key))
+        ).fetchall()
+        return {row["source_id"] for row in rows}
+
     # -- images ------------------------------------------------------------
 
     def put_image(self, sha256, mime, data):

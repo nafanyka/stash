@@ -318,15 +318,19 @@ class TestAfterwards:
         assert after["purged"] is True
         assert fd_repo.counts()["results"] == 0
 
-    def test_a_scene_edited_since_the_review_blocks_the_write(self, fd_repo, fd_config,
-                                                              fd_scene):
+    def test_a_stale_expected_updated_at_does_not_block_the_write(
+            self, fd_repo, fd_config, fd_scene):
+        # Apply always writes against the scene as it stands right now (`commit`
+        # rebuilds the review from the live scene first) - `expected_updated_at`
+        # mismatching is not treated as a reason to refuse: the reviewer's own
+        # selection wins, deliberately, rather than forcing a reload first.
         client, run, review = prepared(fd_repo, fd_config, fd_scene,
                                        {STASHDB: scraped(title="New")})
-        with pytest.raises(apply_module.ApplyError):
-            apply_module.commit(fd_repo, client, run, fd_scene,
-                                {"title": value_id(review, "title", "New")},
-                                expected_updated_at="2020-01-01T00:00:00Z")
-        assert client.updates == []
+        result = apply_module.commit(fd_repo, client, run, fd_scene,
+                                     {"title": value_id(review, "title", "New")},
+                                     expected_updated_at="2020-01-01T00:00:00Z")
+        assert result["applied"] is True
+        assert client.updates
 
 
 class TestPreview:

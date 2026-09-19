@@ -381,6 +381,112 @@ class TestRejectingOneOfSeveralResults:
         assert {value["display"] for value in dates["values"]} == {"2024-01-17"}
 
 
+class TestRejectingCascadesToUrlDescendants:
+    """A source that got the wrong scene is wrong about the URLs it led to as well -
+    unless something else, not being rejected, also vouches for one of them."""
+
+    # Deliberately not `fd_scene`'s own "https://sitea.com/scene/1": that URL is
+    # already seeded from the scene itself, so re-reporting it from a box would not
+    # create a new discovery edge - it would already exist, with no parent to speak
+    # of. A URL only a box's own result mentions is what actually exercises
+    # "discovered by this source".
+    URL_A = "https://sitea.com/scene/999"
+
+    def test_rejecting_a_source_rejects_what_its_url_led_to(self, fd_repo, fd_config,
+                                                             fd_scene):
+        ctx, client = context(fd_repo, fd_config, fd_scene, {
+            STASHDB: scraped(title="Wrong", urls=[self.URL_A]),
+            self.URL_A: scraped(title="Wrong Page Too"),
+        })
+        discovery.Runner(client, fd_repo, fd_config).run(295)
+        run = fd_repo.latest_run(295)
+        review = ops.dispatch(ctx, "review.get", {"run_id": run["id"]})
+        stashdb = next(c for c in review["columns"] if c["name"] == "StashDB")
+        child = next(c for c in review["columns"] if c["parent"] == stashdb["id"])
+
+        after = ops.dispatch(ctx, "review.reject_column",
+                             {"run_id": run["id"], "column_id": stashdb["id"]})
+
+        rejected_ids = {c["id"] for c in after["columns"] if c["rejected"]}
+        assert stashdb["id"] in rejected_ids
+        assert child["id"] in rejected_ids
+
+    def test_restoring_the_parent_leaves_the_cascaded_child_rejected(
+            self, fd_repo, fd_config, fd_scene):
+        ctx, client = context(fd_repo, fd_config, fd_scene, {
+            STASHDB: scraped(title="Wrong", urls=[self.URL_A]),
+            self.URL_A: scraped(title="Wrong Page Too"),
+        })
+        discovery.Runner(client, fd_repo, fd_config).run(295)
+        run = fd_repo.latest_run(295)
+        review = ops.dispatch(ctx, "review.get", {"run_id": run["id"]})
+        stashdb = next(c for c in review["columns"] if c["name"] == "StashDB")
+        child = next(c for c in review["columns"] if c["parent"] == stashdb["id"])
+        ops.dispatch(ctx, "review.reject_column",
+                     {"run_id": run["id"], "column_id": stashdb["id"]})
+
+        # Restoring only the one column struck out by hand - the cascade was a
+        # consequence of the parent being rejected, not an independent decision the
+        # reviewer made about the child, so it is not force-restored with it.
+        after = ops.dispatch(ctx, "review.reject_column",
+                             {"run_id": run["id"], "column_id": stashdb["id"],
+                              "rejected": False})
+        rejected_ids = {c["id"] for c in after["columns"] if c["rejected"]}
+        assert stashdb["id"] not in rejected_ids
+        assert child["id"] in rejected_ids
+
+
+class TestCascadeSparesACorroboratedUrl:
+    """The failure mode the first version of this feature had: a URL two different
+    sources both happen to mention must not vanish just because the FIRST of the
+    two (the one credited with discovering it) turned out to be wrong."""
+
+    URL_A = "https://sitea.com/scene/999"
+
+    def setup_run(self, fd_repo, fd_config, fd_scene):
+        ctx, client = context(fd_repo, fd_config, fd_scene, {
+            STASHDB: scraped(title="Wrong", urls=[self.URL_A]),
+            TPDB: scraped(title="Also Names It", urls=[self.URL_A]),
+            self.URL_A: scraped(title="The Real Page"),
+        })
+        discovery.Runner(client, fd_repo, fd_config).run(295)
+        run = fd_repo.latest_run(295)
+        review = ops.dispatch(ctx, "review.get", {"run_id": run["id"]})
+        return ctx, run, review
+
+    def test_rejecting_one_of_two_sources_that_share_a_url_spares_it(
+            self, fd_repo, fd_config, fd_scene):
+        ctx, run, review = self.setup_run(fd_repo, fd_config, fd_scene)
+        stashdb = next(c for c in review["columns"] if c["name"] == "StashDB")
+        child = next(c for c in review["columns"] if c["url"] == self.URL_A)
+
+        after = ops.dispatch(ctx, "review.reject_column",
+                             {"run_id": run["id"], "column_id": stashdb["id"]})
+
+        rejected_ids = {c["id"] for c in after["columns"] if c["rejected"]}
+        assert stashdb["id"] in rejected_ids
+        # ThePornDB is still standing behind this URL, so it survives.
+        assert child["id"] not in rejected_ids
+
+    def test_rejecting_both_sources_that_share_a_url_finally_takes_it_too(
+            self, fd_repo, fd_config, fd_scene):
+        ctx, run, review = self.setup_run(fd_repo, fd_config, fd_scene)
+        stashdb = next(c for c in review["columns"] if c["name"] == "StashDB")
+        tpdb = next(c for c in review["columns"] if c["name"] == "ThePornDB")
+        child = next(c for c in review["columns"] if c["url"] == self.URL_A)
+
+        ops.dispatch(ctx, "review.reject_column",
+                     {"run_id": run["id"], "column_id": stashdb["id"]})
+        after = ops.dispatch(ctx, "review.reject_column",
+                             {"run_id": run["id"], "column_id": tpdb["id"]})
+
+        rejected_ids = {c["id"] for c in after["columns"] if c["rejected"]}
+        assert stashdb["id"] in rejected_ids
+        assert tpdb["id"] in rejected_ids
+        # Nothing uninvolved vouches for it any more.
+        assert child["id"] in rejected_ids
+
+
 def row(review, field):
     return next(entry for entry in review["rows"] if entry["field"] == field)
 

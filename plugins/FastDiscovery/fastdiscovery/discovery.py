@@ -207,6 +207,10 @@ class Runner:
                                   discovered_by_result_id=result_id,
                                   handler_ids=[], state=R.U_RELATED)
                 continue
+            # Recorded regardless of who already claimed this URL first: a rejection
+            # later needs to know every result that vouches for it, not only the one
+            # the loop guard credited with discovering it (see `add_url_mention`).
+            self.repo.add_url_mention(state.run_id, record["key"], result_id)
             if state.url_total >= limit:
                 state.stop_reason = state.stop_reason or "maxUrlsPerRun reached"
                 break

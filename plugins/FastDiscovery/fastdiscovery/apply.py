@@ -59,14 +59,6 @@ def commit(repo, client, run, scene, selection, schema_fields=None,
     reviewer read would write something they never saw.
     """
     review = merge_module.build(repo, run, scene, schema_fields, client, rejected)
-    live_stamp = review["scene"]["updated_at"]
-    if expected_updated_at and live_stamp and str(expected_updated_at) != str(live_stamp):
-        # Someone edited the scene between the review being rendered and Apply being
-        # pressed. Writing the older intent would silently undo their edit, so the
-        # review is handed back refreshed instead.
-        raise ApplyError("the scene changed since this review was loaded - reload it "
-                         "and check the selection before applying")
-
     plan = _plan(review, selection)
     if plan["problems"]:
         raise ApplyError("; ".join(plan["problems"]))
@@ -134,11 +126,6 @@ def commit_performer(repo, client, run, performer, selection, schema_fields=None
     """
     review = merge_module.build_performer(repo, run, performer, schema_fields, client,
                                           rejected)
-    live_stamp = review["performer"]["updated_at"]
-    if expected_updated_at and live_stamp and str(expected_updated_at) != str(live_stamp):
-        raise ApplyError("the performer changed since this review was loaded - reload "
-                         "it and check the selection before applying")
-
     plan = _plan(review, selection)
     if plan["problems"]:
         raise ApplyError("; ".join(plan["problems"]))

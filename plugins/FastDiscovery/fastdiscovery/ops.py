@@ -299,6 +299,11 @@ def op_reject_column(context, args):
     rejected = set(run.get("rejected_columns") or [])
     if args.get("rejected", True):
         rejected.add(column)
+        # A result that matched the wrong scene is wrong about the URLs it led to as
+        # well - unless something else, not being rejected here, also vouches for
+        # one of them (`cascade_rejection` checks that before including it).
+        rejected |= merge_module.cascade_rejection(context.repo, run["id"], column,
+                                                    rejected)
     else:
         rejected.discard(column)
 
@@ -528,6 +533,8 @@ def op_performer_reject_column(context, args):
     rejected = set(run.get("rejected_columns") or [])
     if args.get("rejected", True):
         rejected.add(column)
+        rejected |= merge_module.cascade_rejection(context.repo, run["id"], column,
+                                                    rejected)
     else:
         rejected.discard(column)
 
