@@ -385,13 +385,14 @@
 
   function SourceList(props) {
     var sources = props.sources || [];
-    var collapsed = React.useState(true);
+    // The whole block, not just part of the list, starts collapsed - the source
+    // list can be dozens of lines long and the table below is what someone opened
+    // the review for. Expanding always shows every source, quiet ones included:
+    // whether a source answered at all is exactly what this list is for.
+    var open = React.useState(false);
     var failed = sources.filter(function (one) {
       return one.status === "ERROR" || one.status === "TIMEOUT" || one.status === "UNREACHABLE";
     });
-    var shown = collapsed[0] ? sources.filter(function (one) {
-      return one.status !== "NO_RESULT" && one.status !== "SKIPPED";
-    }) : sources;
 
     return h(
       "div",
@@ -404,9 +405,9 @@
           "button",
           {
             className: "btn btn-sm btn-link",
-            onClick: function () { collapsed[1](!collapsed[0]); }
+            onClick: function () { open[1](!open[0]); }
           },
-          collapsed[0] ? "Show all " + sources.length : "Hide the quiet ones"
+          open[0] ? "Hide" : "Show all " + sources.length
         )
       ),
       failed.length
@@ -417,10 +418,10 @@
           )
         : null,
 
-      h(
+      open[0] ? h(
         "ul",
         { className: "fd-source-list" },
-        shown.map(function (source) {
+        sources.map(function (source) {
           return h(
             "li",
             { key: source.id, className: cx("fd-source", "fd-source-" + source.status) },
@@ -452,7 +453,7 @@
             source.error ? h("span", { className: "fd-source-error" }, source.error) : null
           );
         })
-      )
+      ) : null
     );
   }
 
@@ -482,18 +483,28 @@
 
     if (row.kind === "image") {
       if (!valueId) {
-        return h("td", { className: "fd-cell fd-cell-image fd-cell-empty" }, "");
+        return h("td", { className: cx("fd-cell", !props.hasHeaderPreview && "fd-cell-image",
+                                        "fd-cell-empty") }, "");
       }
-      var image = props.byId[valueId];
       var isSelected = chosen === valueId;
+      // A performer review's column header already carries this exact photo (same
+      // `row.cells[column.id]`) - repeating it here would just be the same
+      // thumbnail twice, so this cell shrinks to a plain radio glyph, still
+      // clickable, still how a column's own photo gets picked. A scene review has
+      // no such header, so its image cell is the only place the picture is visible
+      // at all and keeps showing it.
       return h(
         "td",
         {
-          className: cx("fd-cell", "fd-cell-image", "fd-cell-selectable",
-                        isSelected && "fd-cell-selected"),
-          onClick: function () { props.onPick(valueId); }
+          className: cx("fd-cell", !props.hasHeaderPreview && "fd-cell-image",
+                        "fd-cell-selectable", isSelected && "fd-cell-selected"),
+          onClick: function () { props.onPick(valueId); },
+          title: props.hasHeaderPreview ? "This column's photo, shown in the header above"
+            : undefined
         },
-        h(Thumbnail, { candidate: image, size: "small" })
+        props.hasHeaderPreview
+          ? h("span", { className: "fd-radio" }, isSelected ? "◉" : "○")
+          : h(Thumbnail, { candidate: props.byId[valueId], size: "small" })
       );
     }
 
@@ -811,7 +822,7 @@
       { className: "fd-image-picker" },
       h(
         "button",
-        { className: "btn btn-sm btn-secondary", onClick: openGallery },
+        { className: "btn btn-secondary", onClick: openGallery },
         "Open gallery"
       ),
       open[0]
@@ -1004,6 +1015,12 @@
                 column: column,
                 byId: byId,
                 chosen: chosen,
+                // A scene review has no header thumbnail row - see the "current"
+                // guard on the header preview above - so its image cell is still
+                // the only place a source's photo is visible at all, and keeps
+                // showing it. A performer review's header already does, and this
+                // cell would just be the same picture again.
+                hasHeaderPreview: !!previewRow,
                 onPick: function (id) { props.onPick(row.field, id); },
                 onToggle: function (id) { props.onToggle(row.field, id); }
               });
@@ -2469,7 +2486,7 @@
     var performerId = props.performerId || (params && params.id);
     var review = useOp("performer.review_get", { performer_id: Number(performerId) });
     var selection = React.useState(null);
-    var organize = React.useState(false);
+    var organize = React.useState(true);
     var busy = React.useState(null);
     var problem = React.useState(null);
     var decided = React.useState(null);
@@ -2561,6 +2578,19 @@
       if (at >= 0) {
         list.splice(at, 1);
       } else {
+        var row = data.rows.filter(function (one) { return one.field === field; })[0];
+        // Some list rows can hold only one value per key - a performer has exactly
+        // one stash id per box, and Stash enforces that with a unique index. Ticking
+        // one therefore unticks its rival instead of queueing a write that fails in
+        // the database.
+        if (row && row.exclusive_by) {
+          var byId = {};
+          row.values.forEach(function (value) { byId[value.id] = value; });
+          var key = (byId[id] || {})[row.exclusive_by];
+          list = list.filter(function (other) {
+            return (byId[other] || {})[row.exclusive_by] !== key;
+          });
+        }
         list.push(id);
       }
       next[field] = list;
