@@ -78,11 +78,21 @@ stash_ids { endpoint stash_id }
 SCENE_BRIEF = "id title date paths { screenshot } studio { id name } files { basename }"
 
 # Everything ScrapedPerformer offers in 0.31.1, minus the deprecated singular
-# spellings (`url`, `twitter`, `instagram`, `image`, `career_length`) already folded
-# into `urls`/`images`/`career_start`+`career_end` - trimmed the same way _SCENE_FIELDS
-# is, by `PerformerSchema` against what the running server actually declares.
+# spellings `twitter`, `instagram`, `image`, `career_length` already folded into
+# `urls`/`images`/`career_start`+`career_end` - trimmed the same way _SCENE_FIELDS is,
+# by `PerformerSchema` against what the running server actually declares.
+#
+# `url` is the one deprecated singular kept, deliberately, alongside `urls` - exactly
+# how _SCENE_FIELDS asks for both. A performer name search's result is not a full
+# profile; it is only ever `{name, url}`, and nothing here guarantees the resolver
+# also mirrors that into `urls` for such a lightweight object the way it reliably does
+# for a full by-URL/by-fragment scrape. Losing `url` there meant a scraper's own
+# identifying link for a name-search hit - the one URL the depth-0 follow-up in
+# `performer_discovery._expand_urls` needs to ever fetch that candidate's full profile
+# - never reached FastDiscovery at all (requirement: a Fast result must not stay a
+# bare name forever just because its GraphQL selection quietly dropped its own url).
 _PERFORMER_FIELDS = (
-    "name", "disambiguation", "gender", "urls", "birthdate", "ethnicity", "country",
+    "name", "disambiguation", "gender", "url", "urls", "birthdate", "ethnicity", "country",
     "eye_color", "height", "measurements", "fake_tits", "penis_length", "circumcised",
     "career_start", "career_end", "tattoos", "piercings", "aliases",
     "tags { stored_id name description remote_site_id }",
@@ -562,7 +572,7 @@ class PerformerSchema(Schema):
     """
 
     INTROSPECT = 'query { __type(name: "ScrapedPerformer") { fields { name } } }'
-    FALLBACK = "name urls gender birthdate details"
+    FALLBACK = "name url urls gender birthdate details"
 
     @property
     def selection(self):

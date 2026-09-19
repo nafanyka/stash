@@ -5,8 +5,8 @@
   metadata:
     description: Performer scraper for babepedia.com. Originally from CommunityScrapers;
       kept and maintained here after it stopped being updated upstream.
-  version: 2-b6dfdca
-  date: '2026-09-18 17:19:41'
+  version: 2-74a1a78
+  date: '2026-09-19 11:04:02'
   path: Babepedia.zip
   sha256: 19509e1290bccba1153b93c47fd9b91874b62d35525724ffacfd9d0c8d619a68
   requires: []

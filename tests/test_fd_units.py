@@ -389,3 +389,27 @@ class TestNamesARecordAnswersTo:
         row = {"name": "Couple Sex", "aliases": ["Couple Sex (Straight)"]}
         assert merge.answers_to(row, fields.canon_name("couple sex straight"))
         assert not merge.answers_to(row, fields.canon_name("Anal"))
+
+
+class TestPerformerSelectionAsksForBothUrlSpellings:
+    """A performer name search's own result is only ever `{name, url}` - never a
+    full profile - so nothing guarantees Stash mirrors that into `urls` the way it
+    does for a full by-URL scrape. Not asking for the deprecated singular `url`
+    meant that link never reached FastDiscovery at all, so the depth-0 follow-up
+    that fetches the rest of the profile had no URL to follow."""
+
+    def test_url_is_requested_alongside_urls(self):
+        schema = stash.PerformerSchema(["name", "url", "urls", "gender"])
+        fields_requested = schema.selection.split()
+        assert "url" in fields_requested
+        assert "urls" in fields_requested
+
+    def test_an_older_server_without_the_field_degrades_quietly(self):
+        schema = stash.PerformerSchema(["name", "urls"])
+        assert "url" not in schema.selection.split()
+        assert "urls" in schema.selection.split()
+
+    def test_the_fallback_also_asks_for_both(self):
+        schema = stash.PerformerSchema([])
+        assert "url" in schema.selection.split()
+        assert "urls" in schema.selection.split()
