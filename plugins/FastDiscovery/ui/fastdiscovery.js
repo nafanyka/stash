@@ -800,22 +800,55 @@
       open[1](false);
     }
 
-    // The gallery groups by source/result, never a flat grid: Source A and every
-    // photo it offered, then Source B and its own. A photo two sources both
+    // The shortlist step groups by source/result, never a flat grid: Source A and
+    // every photo it offered, then Source B and its own. A photo two sources both
     // returned (deduplicated by content or URL) appears once in each of their
-    // groups - it really was offered by both, and that is provenance, not a bug.
-    // In the "pick" step the same grouping applies, just narrowed to whatever
-    // made the shortlist.
+    // groups - it really was offered by both, and that is provenance, not a bug -
+    // and the grouping is worth the space there because skimming a long gallery for
+    // the first time benefits from knowing where each one came from.
     var groups = (props.columns || [])
       .filter(function (column) { return !column.rejected; })
       .map(function (column) {
         var items = row.values.filter(function (candidate) {
-          if (phase[0] === "pick" && !shortlist[0].has(candidate.id)) return false;
           return candidate.sources.indexOf(column.id) >= 0;
         });
         return { column: column, items: items };
       })
       .filter(function (group) { return group.items.length; });
+
+    // The pick step, for a performer, drops the grouping instead: by then the
+    // shortlist is already the handful worth comparing side by side, source no
+    // longer matters for picking one, and every candidate appears exactly once
+    // (`row.values` already de-duplicates a photo two sources both offered) rather
+    // than once per group it happened to belong to.
+    var flatPickItems = props.flatPickStep
+      ? row.values.filter(function (candidate) { return shortlist[0].has(candidate.id); })
+      : null;
+
+    function galleryItem(candidate, inShortlist, keyPrefix) {
+      return h(
+        "label",
+        {
+          key: keyPrefix + candidate.id,
+          className: cx("fd-gallery-item",
+                       (inShortlist ? shortlist[0].has(candidate.id)
+                                    : picked[0] === candidate.id) && "fd-gallery-selected")
+        },
+        h("input", inShortlist
+          ? {
+              type: "checkbox",
+              checked: shortlist[0].has(candidate.id),
+              onChange: function () { toggleShortlist(candidate.id); }
+            }
+          : {
+              type: "radio",
+              name: "fd-image",
+              checked: picked[0] === candidate.id,
+              onChange: function () { picked[1](candidate.id); }
+            }),
+        h(Thumbnail, { candidate: candidate, size: "gallery", width: props.thumbWidth })
+      );
+    }
 
     return h(
       "div",
@@ -851,52 +884,43 @@
                   ? "Step 1 of 2: tick every photo worth a closer look."
                   : "Step 2 of 2: pick the one to use."
               ),
-              h(
-                "div",
-                { className: "fd-gallery-groups" },
-                groups.map(function (group) {
-                  return h(
+              flatPickItems
+                ? h(
                     "div",
-                    { key: group.column.id, className: "fd-gallery-group" },
-                    h("div", { className: "fd-gallery-group-label" }, group.column.name),
-                    h(
-                      "div",
-                      { className: "fd-gallery" },
-                      group.items.map(function (candidate) {
-                        // The group heading already says the source; a photo shared
-                        // with another source is simply in both groups, so no
-                        // per-image caption is needed here.
-                        var inShortlist = phase[0] === "shortlist";
-                        return h(
-                          "label",
-                          {
-                            key: group.column.id + ":" + candidate.id,
-                            className: cx("fd-gallery-item",
-                                         (inShortlist
-                                           ? shortlist[0].has(candidate.id)
-                                           : picked[0] === candidate.id)
-                                           && "fd-gallery-selected")
-                          },
-                          h("input", inShortlist
-                            ? {
-                                type: "checkbox",
-                                checked: shortlist[0].has(candidate.id),
-                                onChange: function () { toggleShortlist(candidate.id); }
-                              }
-                            : {
-                                type: "radio",
-                                name: "fd-image",
-                                checked: picked[0] === candidate.id,
-                                onChange: function () { picked[1](candidate.id); }
-                              }),
-                          h(Thumbnail, { candidate: candidate, size: "gallery",
-                                        width: props.thumbWidth })
-                        );
-                      })
-                    )
-                  );
-                })
-              )
+                    { className: "fd-gallery" },
+                    flatPickItems.map(function (candidate) {
+                      return galleryItem(candidate, false, "flat:");
+                    })
+                  )
+                : h(
+                    "div",
+                    { className: "fd-gallery-groups" },
+                    groups.map(function (group) {
+                      var inShortlist = phase[0] === "shortlist";
+                      var items = inShortlist ? group.items
+                        : group.items.filter(function (candidate) {
+                            return shortlist[0].has(candidate.id);
+                          });
+                      if (!items.length) return null;
+                      return h(
+                        "div",
+                        { key: group.column.id, className: "fd-gallery-group" },
+                        h("div", { className: "fd-gallery-group-label" },
+                          group.column.name),
+                        h(
+                          "div",
+                          { className: "fd-gallery" },
+                          // The group heading already says the source; a photo
+                          // shared with another source is simply in both groups, so
+                          // no per-image caption is needed here.
+                          items.map(function (candidate) {
+                            return galleryItem(candidate, inShortlist,
+                                               group.column.id + ":");
+                          })
+                        )
+                      );
+                    })
+                  )
             ),
             h(
               Modal.Footer,
@@ -1020,6 +1044,7 @@
                     columns: review.columns,
                     title: "Select " + row.label.toLowerCase(),
                     thumbWidth: props.thumbWidth,
+                    flatPickStep: true,
                     onPick: function (id) { props.onPick(row.field, id); }
                   })
                 )
