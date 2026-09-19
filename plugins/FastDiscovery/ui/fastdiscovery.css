@@ -441,23 +441,35 @@
   align-items: center;
 }
 
+/* Big and obvious on purpose: this is the only way left to see or choose a photo
+   for the row it sits under, now that the row itself shows nothing until you look
+   (requirement: it must catch the eye, not blend in as one more small button). */
+.fd-gallery-btn {
+  width: 260px;
+  max-width: 100%;
+  height: 3.25rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+/* Glows red until opened once this session - purely a "there is something here"
+   nudge, not a warning, so it never comes back once you have looked. */
+.fd-gallery-btn-alert {
+  border: 2px solid var(--danger, #dc3545);
+  color: var(--danger, #dc3545);
+  animation: fd-gallery-glow 1.4s ease-in-out infinite;
+}
+
+@keyframes fd-gallery-glow {
+  0%, 100% { box-shadow: 0 0 4px rgba(220, 53, 69, 0.35); }
+  50%      { box-shadow: 0 0 16px rgba(220, 53, 69, 0.95); }
+}
+
 .fd-thumb {
   max-height: 120px;
   max-width: 200px;
   border-radius: 3px;
   background: rgba(128, 128, 128, 0.2);
-}
-
-/* The Image row is judged by looking, so the picture gets the cell: 75% of its
-   width, which still leaves the selection highlight down the side visible. */
-.fd-cell-image { min-width: 12rem; }
-
-.fd-thumb-small {
-  display: block;
-  width: 75%;
-  max-width: 75%;
-  max-height: none;
-  height: auto;
 }
 
 .fd-thumb-gallery {
@@ -505,8 +517,6 @@
 
 /* A placeholder holds the space its picture will take, so nothing jumps when the
    cover finally arrives. */
-.fd-thumb-small.fd-thumb-loading,
-.fd-thumb-small.fd-thumb-missing,
 .fd-thumb-gallery.fd-thumb-loading,
 .fd-thumb-gallery.fd-thumb-missing {
   display: flex;
@@ -516,9 +526,6 @@
   aspect-ratio: 16 / 9;
   line-height: normal;
 }
-
-.fd-thumb-small.fd-thumb-loading,
-.fd-thumb-small.fd-thumb-missing { width: 75%; }
 
 .fd-thumb-gallery.fd-thumb-loading,
 .fd-thumb-gallery.fd-thumb-missing { width: 220px; }

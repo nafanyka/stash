@@ -482,30 +482,10 @@
     }
 
     if (row.kind === "image") {
-      if (!valueId) {
-        return h("td", { className: cx("fd-cell", !props.hasHeaderPreview && "fd-cell-image",
-                                        "fd-cell-empty") }, "");
-      }
-      var isSelected = chosen === valueId;
-      // A performer review's column header already carries this exact photo (same
-      // `row.cells[column.id]`) - repeating it here would just be the same
-      // thumbnail twice, so this cell shrinks to a plain radio glyph, still
-      // clickable, still how a column's own photo gets picked. A scene review has
-      // no such header, so its image cell is the only place the picture is visible
-      // at all and keeps showing it.
-      return h(
-        "td",
-        {
-          className: cx("fd-cell", !props.hasHeaderPreview && "fd-cell-image",
-                        "fd-cell-selectable", isSelected && "fd-cell-selected"),
-          onClick: function () { props.onPick(valueId); },
-          title: props.hasHeaderPreview ? "This column's photo, shown in the header above"
-            : undefined
-        },
-        props.hasHeaderPreview
-          ? h("span", { className: "fd-radio" }, isSelected ? "◉" : "○")
-          : h(Thumbnail, { candidate: props.byId[valueId], size: "small" })
-      );
+      // No per-column picking here at all: "Open gallery" is the one way to look at
+      // and choose a photo, so a whole row of duplicate thumbnails or bare radio
+      // glyphs above it added nothing worth the space.
+      return h("td", { className: "fd-cell fd-cell-empty" });
     }
 
     if (row.kind === "entity") {
@@ -727,7 +707,6 @@
     );
 
     var sized = cx("fd-thumb",
-                   props.size === "small" && "fd-thumb-small",
                    props.size === "gallery" && "fd-thumb-gallery",
                    props.size === "header" && "fd-thumb-header");
     // `width` is the one override the performer image preview setting needs: a fixed
@@ -771,8 +750,14 @@
     var phase = React.useState("shortlist"); // "shortlist" | "pick"
     var shortlist = React.useState(function () { return new Set(); });
     var picked = React.useState(null);
+    // The button glows red until it has been opened once this session, purely to
+    // catch the eye on a row that used to show its photos right here and now shows
+    // nothing until you click - a nudge that there is something to look at, not a
+    // warning about anything being wrong.
+    var everOpened = React.useState(false);
 
     function openGallery() {
+      everOpened[1](true);
       phase[1]("shortlist");
       shortlist[1](new Set(chosen ? [chosen] : []));
       picked[1](chosen || null);
@@ -822,7 +807,11 @@
       { className: "fd-image-picker" },
       h(
         "button",
-        { className: "btn btn-secondary", onClick: openGallery },
+        {
+          className: cx("btn btn-secondary fd-gallery-btn",
+                       !everOpened[0] && "fd-gallery-btn-alert"),
+          onClick: openGallery
+        },
         "Open gallery"
       ),
       open[0]
@@ -1015,12 +1004,6 @@
                 column: column,
                 byId: byId,
                 chosen: chosen,
-                // A scene review has no header thumbnail row - see the "current"
-                // guard on the header preview above - so its image cell is still
-                // the only place a source's photo is visible at all, and keeps
-                // showing it. A performer review's header already does, and this
-                // cell would just be the same picture again.
-                hasHeaderPreview: !!previewRow,
                 onPick: function (id) { props.onPick(row.field, id); },
                 onToggle: function (id) { props.onToggle(row.field, id); }
               });

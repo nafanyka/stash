@@ -2,8 +2,8 @@
   "_comment": "Written by bin/build.sh. What each component looked like when it was last packaged, so the next build can say what moved. Safe to delete - that just means the next build treats everything as new.",
   "components": {
     "plugins/FastDiscovery": {
-      "fingerprint": "9871d0150569eda1c0764fa40902028a8f9bb984acb63a64ab6b408c20129171",
-      "version": "0.4.7"
+      "fingerprint": "160c38a604c94fa3568eaaac406302d7dff7b4a2b8c8477273a573e646a5e9d9",
+      "version": "0.4.8"
     },
     "plugins/MyPerformerBodyCalculator": {
       "fingerprint": "6a4bd01ffb208bcf56b69562371dd3ba69466262147e05e56ed8a2bbc65b2cf1",
