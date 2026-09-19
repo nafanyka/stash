@@ -26,8 +26,8 @@
       "version": "1.0.4"
     },
     "scrapers/Babepedia": {
-      "fingerprint": "839d55b258a752adc0546cdab67233985698a827ad59cfa7c024cf7a2255b072",
-      "version": "1"
+      "fingerprint": "175f9bea49fc7dfd5fcfba1a6e40a232b647d38e79bca07d87631833e5bab4b7",
+      "version": "2"
     },
     "scrapers/FastDiscovery": {
       "fingerprint": "e2fcd7f47c2121a1b964b91f177dcf221233868828b1dd1873a5a4f21655f496",

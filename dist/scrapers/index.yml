@@ -5,10 +5,10 @@
   metadata:
     description: Performer scraper for babepedia.com. Originally from CommunityScrapers;
       kept and maintained here after it stopped being updated upstream.
-  version: 1-b6dfdca
+  version: 2-b6dfdca
   date: '2026-09-18 17:19:41'
   path: Babepedia.zip
-  sha256: 206e8cc1d6dbe1bfd4cc76597046b405d62b086f18fe9bf9a41c72147f8a440f
+  sha256: 19509e1290bccba1153b93c47fd9b91874b62d35525724ffacfd9d0c8d619a68
   requires: []
 - id: FastDiscovery
   name: FastDiscovery

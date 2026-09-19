@@ -218,7 +218,15 @@ def performer_by_name(name) -> list[PerformerSearchResult]:
     scraped = scraper.get("https://www.babepedia.com/ajax-search.php", params={"term": search_name})
     scraped.raise_for_status()
     data = scraped.json()
-    return list(map(map_performer_search,data))
+    # Babepedia's own autocomplete always tacks on one non-result at the end: a
+    # "Search for <query>..." suggestion meant for its own search box, not a person.
+    # Mapping it like every other entry would hand back a fake performer named
+    # "Search for Lady Zee..." with a URL Babepedia does not have - to Stash's own
+    # scrape-by-name modal and to FastDiscovery alike, since both call this same
+    # operation and take every entry it returns as a real candidate.
+    real = [entry for entry in data
+            if not str(entry.get('label', '')).startswith('Search for ')]
+    return list(map(map_performer_search, real))
 
 if __name__ == "__main__":
     op, args = scraper_args()
