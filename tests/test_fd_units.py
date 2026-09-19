@@ -276,6 +276,30 @@ class TestMaintenancePurge:
         assert fd_repo.run(run_id)["purged"] is False
         assert fd_repo.sources_of(run_id)
 
+    def test_an_applied_or_rejected_run_left_unpurged_is_caught_as_a_safety_net(
+            self, fd_repo):
+        # Apply and Reject already purge their own run synchronously the moment
+        # they succeed, so this should never find anything under normal operation -
+        # but if that ever somehow got skipped, a decided run must not go on
+        # holding its whole payload forever just because nothing else ever asks.
+        from fastdiscovery.db import repo as R
+
+        applied_run = fd_repo.start_run(5, "manual", {}, {})
+        self._terminal_source(fd_repo, applied_run, 5, "current")
+        fd_repo.finish_run(applied_run, R.READY_FOR_REVIEW)
+        fd_repo.set_run_status(applied_run, R.APPLIED)
+
+        rejected_run = fd_repo.start_run(6, "manual", {}, {})
+        self._terminal_source(fd_repo, rejected_run, 6, "current")
+        fd_repo.finish_run(rejected_run, R.READY_FOR_REVIEW)
+        fd_repo.set_run_status(rejected_run, R.REJECTED)
+
+        assert fd_repo.purge_finished_dead_end_runs() == 2
+        for run_id in (applied_run, rejected_run):
+            row = fd_repo.run(run_id)
+            assert row["purged"] is True
+            assert fd_repo.sources_of(run_id) == []
+
 
 class TestLogSafety:
     def test_a_credential_in_a_message_is_redacted(self):

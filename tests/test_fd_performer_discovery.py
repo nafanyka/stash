@@ -387,8 +387,75 @@ class TestUrlRecursion:
         one.run_full(fast_summary["run_id"])
         scraped = [call[1] for call in client.calls if call[0] == "scrape_performer_url"]
         assert scraped == [url_a, url_b]
+
+
+class TestFastBlacklist:
+    """A blacklisted scraper is stronger than simply not being picked: an unpicked
+    one still runs if some other source's result happens to link to its site, but a
+    blacklisted one never does on Fast - not by name, not by a matching URL. Full
+    ignores the list entirely."""
+
+    def test_a_blacklisted_scraper_is_never_name_searched_even_if_also_picked(
+            self, fd_repo):
+        client = FakeStash(performer=PERFORMER, boxes=[], responses={
+            "pname:Babepedia:Bonnie Alex": scraped_performer(name="Bonnie Alex"),
+        })
+        config = perf_config(["Babepedia"],
+                             performerFastBlacklist=json.dumps(["Babepedia"]))
+        summary = runner(client, fd_repo, config).run_fast(42)
+        asked = [call[1] for call in client.calls if call[0] == "scrape_single_performer"]
+        assert not any("Babepedia" in one for one in asked)
+        assert summary["status"] == R.NO_RESULTS
+
+    def test_a_blacklisted_scraper_is_not_reached_via_its_own_matching_url(
+            self, fd_repo):
+        url_a = "https://perfa.com/a"
+        client = FakeStash(performer=dict(PERFORMER, urls=[url_a]), boxes=[],
+                           responses={"purl:" + url_a: scraped_performer(
+                               name="Bonnie Alex")})
+        config = perf_config([], performerFastBlacklist=json.dumps(["PerfSiteA"]))
+        summary = runner(client, fd_repo, config).run_fast(42)
+
+        assert not any(call[0] == "scrape_performer_url" for call in client.calls)
+        by_name = {s["name"]: s for s in fd_repo.sources_of(summary["run_id"])}
+        assert by_name["Perf Site A"]["status"] == R.S_UNREACHABLE
+        assert "blacklisted" in by_name["Perf Site A"]["error"]
+
+    def test_an_ambiguous_urls_blind_call_is_dropped_if_either_handler_is_blacklisted(
+            self, fd_repo):
+        url_a = "https://pshared.com/a"
+        client = FakeStash(performer=dict(PERFORMER, urls=[url_a]), boxes=[],
+                           responses={
+                               "purl:" + url_a: scraped_performer(name="Blind Answer"),
+                               "pfrag:PerfSharedOne:" + url_a: scraped_performer(
+                                   name="Fragment Answer"),
+                           })
+        config = perf_config([],
+                             performerFastBlacklist=json.dumps(["PerfSharedTwo"]))
+        summary = runner(client, fd_repo, config).run_fast(42)
+
+        # The blind call could land on either handler, so it is not trustworthy once
+        # one of them is blacklisted - it is dropped entirely rather than risked.
+        assert not any(call[0] == "scrape_performer_url" for call in client.calls)
+        # The other handler is not blacklisted and can be aimed at directly, so its
+        # own column is unaffected.
+        asked = [call[1] for call in client.calls if call[0] == "scrape_single_performer"]
+        assert any("PerfSharedOne" in one for one in asked)
+
+    def test_full_ignores_the_fast_blacklist_entirely(self, fd_repo):
+        url_a = "https://perfa.com/a"
+        client = FakeStash(performer=dict(PERFORMER, urls=[url_a]), boxes=[],
+                           responses={"purl:" + url_a: scraped_performer(
+                               name="Bonnie Alex")})
+        config = perf_config([], performerFastBlacklist=json.dumps(["PerfSiteA"]))
+        one = runner(client, fd_repo, config)
+        fast_summary = one.run_fast(42)
+        assert not any(call[0] == "scrape_performer_url" for call in client.calls)
+
+        one.run_full(fast_summary["run_id"])
+        assert any(call[0] == "scrape_performer_url" for call in client.calls)
         by_url = {u["url"]: u for u in fd_repo.urls_of(fast_summary["run_id"])}
-        assert by_url[url_b]["state"] == R.U_SCRAPED
+        assert by_url[url_a]["state"] == R.U_SCRAPED
 
 
 class TestSharedUrlProvenance:

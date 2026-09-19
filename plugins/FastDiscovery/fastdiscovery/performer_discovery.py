@@ -82,10 +82,26 @@ class PerformerRunner:
         return self._schema.selection
 
     def fast_scraper_ids(self):
-        """The performer-name scrapers picked in settings, resolved to real scraper
-        ids and filtered to what is actually installed right now (requirement 23: a
-        removed scraper drops out silently rather than failing the run). Stash-boxes
-        are not in this list at all - see `_run_name_and_box_waves`.
+        """The performer-name scrapers picked in settings for Fast to use, resolved
+        to real scraper ids (requirement 23: a removed scraper drops out silently
+        rather than failing the run). Stash-boxes are not in this list at all - see
+        `_run_name_and_box_waves`.
+        """
+        return self._resolve_scraper_ids(self.config["performerFastScrapers"])
+
+    def fast_blacklist_ids(self):
+        """The performer-name scrapers Fast must never use - not by name search, and
+        not by following a URL that happens to match one of them either (see
+        `_expand_urls`). Distinct from simply not picking a scraper for
+        `performerFastScrapers`: an unpicked scraper still gets used if some other
+        source's result happens to link to its site; a blacklisted one never does,
+        on Fast. Full ignores this list entirely - it exists to keep the quick pass
+        quick, not to remove a scraper from the review altogether.
+        """
+        return self._resolve_scraper_ids(self.config["performerFastBlacklist"])
+
+    def _resolve_scraper_ids(self, raw_setting_value):
+        """A settings list, resolved to real installed scraper ids.
 
         The setting itself may be the FastDiscovery settings page's own JSON array,
         or a plain comma-separated list typed straight into Stash's generic
@@ -95,7 +111,7 @@ class PerformerRunner:
         whether that is also the scraper's internal id.
         """
         from . import settings as settings_module
-        wanted = settings_module.parse_choice_list(self.config["performerFastScrapers"])
+        wanted = settings_module.parse_choice_list(raw_setting_value)
         if not wanted:
             return []
         by_key = {}
@@ -134,8 +150,10 @@ class PerformerRunner:
     def run_fast(self, performer_id, trigger="manual", job_id=None, replace=True,
                 progress_hook=None):
         """Start (or replace) a Fast run: every stash-box, then the scrapers the
-        settings page picked."""
-        scraper_ids = self.fast_scraper_ids()
+        settings page picked, minus any that are also blacklisted - the blacklist
+        wins if a scraper is somehow in both lists."""
+        blacklist = set(self.fast_blacklist_ids())
+        scraper_ids = [one for one in self.fast_scraper_ids() if one not in blacklist]
         if not scraper_ids and not self.client.stash_boxes():
             logs.warning("performer %s: no stash-boxes are configured and no Fast "
                         "performer scrapers are picked in settings" % performer_id)
@@ -357,6 +375,9 @@ class PerformerRunner:
         if not self.config["recursiveUrlDiscovery"]:
             configured_max = 0
         max_depth = 0 if mode == "FAST" else configured_max
+        # Full ignores the Fast blacklist entirely - it exists to keep the quick pass
+        # quick, not to remove a scraper from the review altogether.
+        blacklist = set(self.fast_blacklist_ids()) if mode == "FAST" else set()
 
         depth = 0
         while depth <= max_depth:
@@ -373,6 +394,13 @@ class PerformerRunner:
                 sources, unreachable = registry.url_sources(
                     {"url": row["url"], "key": row["norm_key"], "host": row["host"]},
                     depth, parent_source_id=seen_parents.get(parent))
+                blacklisted_only = False
+                if blacklist:
+                    had_sources = bool(sources)
+                    sources, blocked = self._drop_blacklisted(sources, blacklist,
+                                                              registry)
+                    unreachable = unreachable + blocked
+                    blacklisted_only = had_sources and not sources
                 for source in sources:
                     source["url_row_id"] = row["id"]
                     wave.append(source)
@@ -387,6 +415,12 @@ class PerformerRunner:
                                                               row["norm_key"]),
                          "attribution": registry_module.AMBIGUOUS},
                         R.S_UNREACHABLE, entry["reason"])
+                if blacklisted_only:
+                    # Fast's blacklist blocked every candidate this URL had, but Full
+                    # ignores that list entirely - leaving the row PENDING, not
+                    # SCRAPED, is what gives Full a real, unblocked attempt at it
+                    # rather than finding it already marked done.
+                    continue
                 self.repo.set_url_state(row["id"], R.U_SCRAPED)
 
             if wave:
@@ -405,6 +439,30 @@ class PerformerRunner:
                 self.repo.set_url_state(
                     row["id"], R.U_SKIPPED_DEPTH,
                     "beyond performerMaxUrlDepth (%s)" % configured_max)
+
+    def _drop_blacklisted(self, sources, blacklist, registry):
+        """(sources not blocked, unreachable entries for the ones that were).
+
+        A blacklisted scraper must never run on Fast, whether it is the one certain
+        handler for a URL, one of several aimed FRAGMENT calls, or merely one of the
+        candidates behind an ambiguous URL Stash itself would pick from - the last
+        case cannot be aimed away from a specific scraper at all, so the one blind
+        call for that URL is dropped entirely rather than risk it landing on the
+        blacklisted one with no way to tell afterward.
+        """
+        kept, blocked = [], []
+        for source in sources:
+            hit = [one for one in (source.get("handlers") or []) if one in blacklist]
+            if not hit:
+                kept.append(source)
+                continue
+            for scraper_id in hit:
+                name = (registry.by_id.get(scraper_id) or {}).get("name", scraper_id)
+                blocked.append({
+                    "scraper_id": scraper_id, "name": name, "url": source["url"],
+                    "reason": "blacklisted for Fast performer discovery",
+                })
+        return kept, blocked
 
     def _source_of_result(self, result_id):
         result = self.repo.result(result_id)

@@ -1953,7 +1953,13 @@
             updated[entry.name] = next;
             draft[1](updated);
           }
-          var isScraperPicklist = entry.name === "performerFastScrapers";
+          var isScraperPicklist = entry.name === "performerFastScrapers" ||
+            entry.name === "performerFastBlacklist";
+          var niceName = entry.name === "performerFastScrapers"
+            ? "Fast performer scrapers"
+            : entry.name === "performerFastBlacklist"
+            ? "Fast performer scraper blacklist"
+            : entry.name;
           return h(
             "div",
             { key: entry.name, className: "fd-setting" },
@@ -1967,8 +1973,7 @@
                     onChange: function (event) { change(event.target.checked); }
                   })
                 : null,
-              h("span", { className: "fd-setting-name" },
-                isScraperPicklist ? "Fast performer scrapers" : entry.name)
+              h("span", { className: "fd-setting-name" }, niceName)
             ),
             isScraperPicklist
               ? h(PerformerScraperMultiSelect, { value: value, onChange: change })

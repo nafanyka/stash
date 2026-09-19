@@ -347,7 +347,7 @@ class Repo:
         return self.purge_orphan_images()
 
     def purge_finished_dead_end_runs(self):
-        """Drop the payload of every run that is over and will never be decided.
+        """Drop the payload of every finished run that still has one.
 
         `NO_RESULTS` found nothing to review, a plain `FAILED` run never produced a
         payload worth keeping either, and `CANCELLED` is a stop mid-run - none of
@@ -355,16 +355,26 @@ class Repo:
         `urls` rows are dead weight from the moment they finish, not just after a
         purge someone remembered to run. This is what "run Maintenance" is *for*
         (requirement 20's mirror: a run that is not reviewable should not go on
-        holding its whole payload). `FAILED_APPLY` is deliberately excluded - it
-        stays reviewable on purpose, so Apply can simply be pressed again - and so
-        is anything already `RUNNING` or already reviewable.
+        holding its whole payload).
+
+        `APPLIED` and `REJECTED` are included too, as a safety net rather than the
+        main point: Apply and Reject already purge their own run synchronously the
+        moment they succeed, so under normal operation there is nothing here for
+        either status to find - but if that synchronous purge was ever somehow
+        skipped (a crash between the write and the purge, say), this is what
+        eventually catches it rather than leaving a decided run holding its whole
+        payload forever.
+
+        `FAILED_APPLY` is deliberately excluded - it stays reviewable on purpose, so
+        Apply can simply be pressed again - and so is anything already `RUNNING` or
+        still reviewable.
 
         Purges exactly the way Apply/Reject do (`purge_run`), so the run row and its
         audit columns survive; only the heavy payload goes.
         """
         rows = self.connection.execute(
-            "SELECT id FROM runs WHERE purged = 0 AND status IN (?, ?, ?)",
-            (NO_RESULTS, CANCELLED, FAILED)).fetchall()
+            "SELECT id FROM runs WHERE purged = 0 AND status IN (?, ?, ?, ?, ?)",
+            (NO_RESULTS, CANCELLED, FAILED, APPLIED, REJECTED)).fetchall()
         for row in rows:
             self.purge_run(row["id"])
         return len(rows)
