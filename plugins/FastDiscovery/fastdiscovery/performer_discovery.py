@@ -300,6 +300,18 @@ class PerformerRunner:
         depth = 0 if source["type"] in ("current", "performer_name") \
             else int(source.get("depth") or 0) + 1
         limit = int(self.config["maxUrlsPerRun"])
+        # A name-search or stash-box result is only ever a menu entry - `{name, url}`
+        # - never a usable answer by itself the way a URL scraper's or a box's own
+        # fingerprint/query answer already is. Its own identifying link is not a new,
+        # open-ended direction the run might or might not follow - it is the
+        # deterministic second half of a result this run already committed to when
+        # it asked the question, exactly as manually clicking that candidate in
+        # Stash's own scrape-by-name dialog always fetches its full profile. Rationing
+        # it against maxUrlsPerRun - a budget meant for the genuinely unbounded frontier
+        # of links mentioned inside scraped content - meant it could be silently
+        # dropped by nothing more than which other source's urls happened to fill the
+        # budget first, so it is exempt.
+        guaranteed = source["type"] == "performer_name" and depth == 0
 
         for entry in urls_module.from_result(raw):
             record = urls_module.normalize(entry["url"])
@@ -311,7 +323,7 @@ class PerformerRunner:
                                   discovered_by_result_id=result_id,
                                   handler_ids=[], state=R.U_RELATED)
                 continue
-            if state.url_total >= limit:
+            if not guaranteed and state.url_total >= limit:
                 state.stop_reason = state.stop_reason or "maxUrlsPerRun reached"
                 break
             handlers = [one["id"] for one in registry.handlers_for(record["url"])]
@@ -320,7 +332,7 @@ class PerformerRunner:
                 discovered_by_result_id=result_id, handler_ids=handlers,
                 state=R.U_PENDING if handlers else R.U_NO_HANDLER,
                 note=None if handlers else "no installed scraper matches this URL")
-            if url_id is not None:
+            if url_id is not None and not guaranteed:
                 state.url_total += 1
 
     def _expand_urls(self, state, registry, progress_hook, mode=None):

@@ -84,13 +84,12 @@ SCENE_BRIEF = "id title date paths { screenshot } studio { id name } files { bas
 #
 # `url` is the one deprecated singular kept, deliberately, alongside `urls` - exactly
 # how _SCENE_FIELDS asks for both. A performer name search's result is not a full
-# profile; it is only ever `{name, url}`, and nothing here guarantees the resolver
-# also mirrors that into `urls` for such a lightweight object the way it reliably does
-# for a full by-URL/by-fragment scrape. Losing `url` there meant a scraper's own
-# identifying link for a name-search hit - the one URL the depth-0 follow-up in
-# `performer_discovery._expand_urls` needs to ever fetch that candidate's full profile
-# - never reached FastDiscovery at all (requirement: a Fast result must not stay a
-# bare name forever just because its GraphQL selection quietly dropped its own url).
+# profile; it is only ever `{name, url}` for a scraper still using that older shape
+# (Babepedia's own script, before it was updated to emit `urls` like IAFD's already
+# does), and nothing guarantees the resolver mirrors that into `urls` for such a
+# lightweight object. Confirmed live: with `url` requested, both candidates' links
+# showed up as `urls` row values immediately - this is what makes that possible at
+# all, for any scraper that still emits the singular form.
 _PERFORMER_FIELDS = (
     "name", "disambiguation", "gender", "url", "urls", "birthdate", "ethnicity", "country",
     "eye_color", "height", "measurements", "fake_tits", "penis_length", "circumcised",

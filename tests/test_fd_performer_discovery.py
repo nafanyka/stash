@@ -128,6 +128,35 @@ class TestNameSearchHitsGetTheirOwnFullProfile:
         image_row = [r for r in review["rows"] if r["kind"] == "image"][0]
         assert len(image_row["values"]) == 2
 
+    def test_a_tight_maxUrlsPerRun_does_not_swallow_a_candidates_own_url(self, fd_repo):
+        # requirement: a name-search hit's own identifying url is the guaranteed
+        # second half of a result this run already committed to, never optional
+        # discovery competing for the same budget as an arbitrary link mentioned
+        # inside some other source's content - so it must survive even when that
+        # budget is already spent by something else entirely.
+        url_a = "https://www.babepedia.com/babe/Kloe_Love"
+        url_b = "https://www.babepedia.com/babe/Kloey_Love"
+        STASHDB = "https://stashdb.org/graphql"
+        client = FakeStash(performer=PERFORMER, boxes=[
+            {"name": "StashDB", "endpoint": STASHDB}], responses={
+            "pbox:%s:Bonnie Alex" % STASHDB: scraped_performer(
+                name="Bonnie Alex",
+                urls=["https://x.example/1", "https://x.example/2",
+                     "https://x.example/3"]),
+            "pname:Babepedia:Bonnie Alex": [
+                {"name": "Kloe Love (Kloe Love)", "url": url_a},
+                {"name": "Kloey Love", "url": url_b},
+            ],
+            "purl:" + url_a: scraped_performer(name="Kloe Love"),
+            "purl:" + url_b: scraped_performer(name="Kloey Love"),
+        })
+        config = perf_config(["Babepedia"], maxUrlsPerRun=1)
+        summary = runner(client, fd_repo, config).run_fast(42)
+
+        scraped_urls = sorted(call[1] for call in client.calls
+                              if call[0] == "scrape_performer_url")
+        assert scraped_urls == sorted([url_a, url_b])
+
 
 class TestStashBoxes:
     """Every configured stash-box is asked unconditionally, before the picked
