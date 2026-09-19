@@ -7,7 +7,7 @@ description: >-
   Also does the same for performers: every performer-name scraper you pick (Fast), or
   every installed one (Full), each result kept as its own column, URLs followed the
   same way, reviewed the same way.
-version: 0.4.9
+version: 0.4.10
 url: https://github.com/nafanyka/stash
 
 exec:

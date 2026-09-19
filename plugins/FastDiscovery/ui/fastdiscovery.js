@@ -482,10 +482,24 @@
     }
 
     if (row.kind === "image") {
-      // No per-column picking here at all: "Open gallery" is the one way to look at
-      // and choose a photo, so a whole row of duplicate thumbnails or bare radio
-      // glyphs above it added nothing worth the space.
-      return h("td", { className: "fd-cell fd-cell-empty" });
+      // Only reached for a scene review: a performer's image row skips this per-
+      // column cell rendering entirely (see MergeTable) because "Open gallery" is
+      // already the one way to browse and choose among several photos per source.
+      // A scene has exactly one cover per source, so this small preview - the
+      // scene's own current screenshot included - is still the fastest way to spot
+      // the right one and pick it with a click, exactly as it always has been.
+      if (!valueId) return h("td", { className: "fd-cell fd-cell-image fd-cell-empty" }, "");
+      var image = props.byId[valueId];
+      var isSelected = chosen === valueId;
+      return h(
+        "td",
+        {
+          className: cx("fd-cell", "fd-cell-image", "fd-cell-selectable",
+                        isSelected && "fd-cell-selected"),
+          onClick: function () { props.onPick(valueId); }
+        },
+        h(Thumbnail, { candidate: image, size: "small" })
+      );
     }
 
     if (row.kind === "entity") {
@@ -707,6 +721,7 @@
     );
 
     var sized = cx("fd-thumb",
+                   props.size === "small" && "fd-thumb-small",
                    props.size === "gallery" && "fd-thumb-gallery",
                    props.size === "header" && "fd-thumb-header");
     // `width` is the one override the performer image preview setting needs: a fixed
@@ -984,9 +999,35 @@
           "tbody",
           null,
           review.rows.map(function (row) {
+            var chosen = selection[row.field];
+
+            // A performer's image row has no per-column cells at all any more - see
+            // ValueCell - and "Open gallery" is the one thing left to show, so the
+            // field-label/"choose" row that used to sit above it (with nothing left
+            // beside the label once the cells went empty) is skipped entirely rather
+            // than kept as a dead strip. A scene's image row is untouched: it still
+            // has one real photo per column worth glancing at directly.
+            if (row.kind === "image" && previewRow) {
+              return h(
+                "tr",
+                { key: row.field + "-editor", className: "fd-row-editor" },
+                h(
+                  "td",
+                  { colSpan: review.columns.length + 1 },
+                  h(ImagePicker, {
+                    row: row,
+                    chosen: chosen,
+                    columns: review.columns,
+                    title: "Select " + row.label.toLowerCase(),
+                    thumbWidth: props.thumbWidth,
+                    onPick: function (id) { props.onPick(row.field, id); }
+                  })
+                )
+              );
+            }
+
             var byId = {};
             row.values.forEach(function (value) { byId[value.id] = value; });
-            var chosen = selection[row.field];
             var isList = row.kind === "url_list" || row.kind === "entity_list" ||
               row.kind === "stash_id_list";
             var showEditor = isList || row.kind === "image";
@@ -1070,6 +1111,8 @@
                   h(
                     "td",
                     { colSpan: review.columns.length + 1 },
+                    // A scene review's image row - the only "image" kind that still
+                    // reaches here, a performer's having already returned above.
                     row.kind === "image"
                       ? h(ImagePicker, {
                           row: row,

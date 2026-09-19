@@ -472,6 +472,18 @@
   background: rgba(128, 128, 128, 0.2);
 }
 
+/* The Image row is judged by looking, so the picture gets the cell: 75% of its
+   width, which still leaves the selection highlight down the side visible. */
+.fd-cell-image { min-width: 12rem; }
+
+.fd-thumb-small {
+  display: block;
+  width: 75%;
+  max-width: 75%;
+  max-height: none;
+  height: auto;
+}
+
 .fd-thumb-gallery {
   /* A fallback for when no `width` prop is given (a scene's single cover never
      passes one) - sized to its own image, not stretched to fill a flex/grid
@@ -517,6 +529,8 @@
 
 /* A placeholder holds the space its picture will take, so nothing jumps when the
    cover finally arrives. */
+.fd-thumb-small.fd-thumb-loading,
+.fd-thumb-small.fd-thumb-missing,
 .fd-thumb-gallery.fd-thumb-loading,
 .fd-thumb-gallery.fd-thumb-missing {
   display: flex;
@@ -526,6 +540,9 @@
   aspect-ratio: 16 / 9;
   line-height: normal;
 }
+
+.fd-thumb-small.fd-thumb-loading,
+.fd-thumb-small.fd-thumb-missing { width: 75%; }
 
 .fd-thumb-gallery.fd-thumb-loading,
 .fd-thumb-gallery.fd-thumb-missing { width: 220px; }

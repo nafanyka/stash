@@ -83,6 +83,52 @@ class TestNameResults:
         assert not any("GoneScraper" in one for one in asked)
 
 
+class TestNameSearchHitsGetTheirOwnFullProfile:
+    """A name search's own results are only ever `{name, url}` - Babepedia's real
+    shape, and most non-stash-box scrapers' - never a full profile. Fast's depth-0
+    follow-up (see `_expand_urls`) is what turns each candidate's own `url` into a
+    second, fuller column, exactly the two-step dance Stash's own scrape-by-name
+    modal does when a person clicks a candidate."""
+
+    def test_each_of_several_candidates_gets_scraped_by_its_own_url(self, fd_repo):
+        url_a = "https://www.babepedia.com/babe/Kloe_Love"
+        url_b = "https://www.babepedia.com/babe/Kloey_Love"
+        client = FakeStash(performer=PERFORMER, boxes=[], responses={
+            "pname:Babepedia:Bonnie Alex": [
+                {"name": "Kloe Love (Kloe Love)", "url": url_a},
+                {"name": "Kloey Love", "url": url_b},
+            ],
+            "purl:" + url_a: scraped_performer(name="Kloe Love",
+                                                images=["https://img/a.jpg"]),
+            "purl:" + url_b: scraped_performer(name="Kloey Love",
+                                               images=["https://img/b.jpg"]),
+        })
+        config = perf_config(["Babepedia"])
+        summary = runner(client, fd_repo, config).run_fast(42)
+
+        scraped_urls = sorted(call[1] for call in client.calls
+                              if call[0] == "scrape_performer_url")
+        assert scraped_urls == sorted([url_a, url_b])
+
+        from fastdiscovery import merge
+        run = fd_repo.run(summary["run_id"])
+        review = merge.build_performer(fd_repo, run, PERFORMER)
+        columns = [c for c in review["columns"] if c["id"] != "current"]
+        # Two bare search hits (no url of their own to speak of - `url` on a column
+        # is the *scraped* url, not the search query) plus, once the depth-0
+        # follow-up ran, one fuller column per hit, each a child of the hit that
+        # led to it, not a replacement for it.
+        hits = [c for c in columns if not c["url"]]
+        full = {c["url"]: c for c in columns if c["url"]}
+        assert len(hits) == 2
+        assert set(full) == {url_a, url_b}
+        by_id = {c["id"]: c for c in columns}
+        assert by_id[full[url_a]["parent"]] in hits
+        assert by_id[full[url_b]["parent"]] in hits
+        image_row = [r for r in review["rows"] if r["kind"] == "image"][0]
+        assert len(image_row["values"]) == 2
+
+
 class TestStashBoxes:
     """Every configured stash-box is asked unconditionally, before the picked
     scrapers, on both Fast and Full - never a setting to opt into, exactly the way
