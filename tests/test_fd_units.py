@@ -301,6 +301,46 @@ class TestMaintenancePurge:
             assert fd_repo.sources_of(run_id) == []
 
 
+class TestFullOfferable:
+    """Full is offered even when Fast found nothing to review - that is exactly
+    when trying the scrapers Fast did not use matters most - but not once Full has
+    already run, and not once the run is purged either way."""
+
+    def test_no_results_still_offers_full(self, fd_repo):
+        from fastdiscovery.db import repo as R
+
+        run_id = fd_repo.start_run(1, "manual", {}, {}, entity_type="performer")
+        fd_repo.finish_run(run_id, R.NO_RESULTS)
+        assert fd_repo.run(run_id)["full_offerable"] is True
+
+    def test_a_reviewable_result_offers_full_too(self, fd_repo):
+        from fastdiscovery.db import repo as R
+
+        run_id = fd_repo.start_run(2, "manual", {}, {}, entity_type="performer")
+        fd_repo.finish_run(run_id, R.READY_FOR_REVIEW)
+        assert fd_repo.run(run_id)["full_offerable"] is True
+
+    def test_a_run_already_in_full_mode_does_not_offer_it_again(self, fd_repo):
+        from fastdiscovery.db import repo as R
+
+        run_id = fd_repo.start_run(3, "manual", {}, {}, entity_type="performer")
+        fd_repo.finish_run(run_id, R.NO_RESULTS)
+        fd_repo.set_run_mode(run_id, "FULL")
+        assert fd_repo.run(run_id)["full_offerable"] is False
+
+    def test_a_purged_run_does_not_offer_full(self, fd_repo):
+        from fastdiscovery.db import repo as R
+
+        run_id = fd_repo.start_run(4, "manual", {}, {}, entity_type="performer")
+        fd_repo.finish_run(run_id, R.NO_RESULTS)
+        fd_repo.purge_run(run_id)
+        assert fd_repo.run(run_id)["full_offerable"] is False
+
+    def test_a_run_still_going_does_not_offer_full(self, fd_repo):
+        run_id = fd_repo.start_run(5, "manual", {}, {}, entity_type="performer")
+        assert fd_repo.run(run_id)["full_offerable"] is False
+
+
 class TestLogSafety:
     def test_a_credential_in_a_message_is_redacted(self):
         from fastdiscovery import logs

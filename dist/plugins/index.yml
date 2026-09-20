@@ -10,10 +10,10 @@
       the moment you decide. Also does the same for performers: every performer-name
       scraper you pick (Fast), or every installed one (Full), each result kept as
       its own column, URLs followed the same way, reviewed the same way.'
-  version: 0.5.2-718c8ab
-  date: '2026-09-19 15:47:18'
+  version: 0.5.3-1a038d6
+  date: '2026-09-19 15:54:22'
   path: FastDiscovery.zip
-  sha256: cd9b73a1d4e4ae5a2bf91a15a35d66f5db952fc7130329faec7b15607c50b190
+  sha256: 37c01aa3f0544893589805a81d5ef5c39a439a474b821d54abfcd6629abfc6e1
   requires: []
 - id: MyPerformerBodyCalculator
   name: My Performer Body Calculator

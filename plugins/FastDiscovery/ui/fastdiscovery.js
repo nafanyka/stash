@@ -2454,7 +2454,7 @@
                           "Review"
                         )
                       : null,
-                    run.reviewable && run.mode !== "FULL"
+                    run.full_offerable
                       ? h(
                           "button",
                           {
@@ -2763,7 +2763,7 @@
       data.run.stop_reason
         ? h("div", { className: "fd-note" }, "Stopped early: " + data.run.stop_reason)
         : null,
-      data.run.reviewable && data.run.mode !== "FULL"
+      data.run.full_offerable
         ? h(
             "div", { className: "fd-note" },
             "Fast discovery only used the scrapers picked in settings. ",

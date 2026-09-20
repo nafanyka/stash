@@ -203,6 +203,57 @@ class TestMaintenance:
         assert fd_repo.run(run_id)["status"] == R.FAILED
 
 
+class TestPerformerFullEvenWhenFastFoundNothing:
+    """A NO_RESULTS Fast pass is exactly when trying the scrapers Fast did not use
+    matters most - refusing Full there took away the one chance to still find
+    something, not just an edge case with nothing at stake."""
+
+    PERFORMER = {"id": "42", "name": "Bonnie Alex", "urls": [], "alias_list": [],
+                "tags": [], "stash_ids": []}
+
+    def performer_context(self, fd_repo, fd_config, responses=None):
+        client = FakeStash(performer=self.PERFORMER, boxes=[],
+                           responses=responses or {})
+        return ops.Context(client, fd_repo, fd_config), client
+
+    def test_full_can_be_queued_after_fast_finds_nothing(self, fd_repo, fd_config):
+        from fastdiscovery import performer_discovery
+        ctx, client = self.performer_context(fd_repo, fd_config)
+        summary = performer_discovery.PerformerRunner(client, fd_repo,
+                                                       fd_config).run_fast(42)
+        assert summary["status"] == R.NO_RESULTS
+
+        result = ops.dispatch(ctx, "performer.full", {"run_id": summary["run_id"]})
+        assert result.get("ok") is not False
+        assert result["queued"] is True
+
+    def test_the_review_page_reports_full_offerable_when_no_results_were_found(
+            self, fd_repo, fd_config):
+        from fastdiscovery import performer_discovery
+        ctx, client = self.performer_context(fd_repo, fd_config)
+        summary = performer_discovery.PerformerRunner(client, fd_repo,
+                                                       fd_config).run_fast(42)
+        status = ops.dispatch(ctx, "performer.status", {"performer_id": "42"})
+        assert status["run"]["status"] == R.NO_RESULTS
+        assert status["run"]["full_offerable"] is True
+
+    def test_full_is_refused_a_second_time_once_it_has_already_run(
+            self, fd_repo, fd_config):
+        from fastdiscovery import performer_discovery
+        ctx, client = self.performer_context(fd_repo, fd_config)
+        summary = performer_discovery.PerformerRunner(client, fd_repo,
+                                                       fd_config).run_fast(42)
+        ops.dispatch(ctx, "performer.full", {"run_id": summary["run_id"]})
+        # Full itself runs as a queued task, not inline here, so drive the engine's
+        # own run_full to reach FULL mode the same way that task would.
+        performer_discovery.PerformerRunner(client, fd_repo,
+                                            fd_config).run_full(summary["run_id"])
+
+        result = ops.dispatch(ctx, "performer.full", {"run_id": summary["run_id"]})
+        assert result["ok"] is False
+        assert "already" in result["error"]
+
+
 class TestRejectingAColumn:
     """A result that got the wrong scene is wrong about every field at once."""
 

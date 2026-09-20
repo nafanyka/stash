@@ -360,10 +360,10 @@ def _source_summary(source):
 
 def _run_summary(run):
     return {key: run.get(key) for key in
-            ("id", "scene_id", "status", "trigger", "started_at", "finished_at",
+            ("id", "scene_id", "status", "mode", "trigger", "started_at", "finished_at",
              "source_count", "ok_source_count", "error_count", "url_count",
              "result_count", "max_depth_reached", "stop_reason", "error", "reviewable",
-             "purged")}
+             "full_offerable", "purged")}
 
 
 # ------------------------------------------------------------------ rows

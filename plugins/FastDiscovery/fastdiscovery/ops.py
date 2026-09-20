@@ -461,10 +461,10 @@ def op_performer_full(context, args):
     run = _run(context, args, entity_type="performer")
     if not run or run["entity_type"] != "performer":
         return {"ok": False, "error": "no such performer run"}
-    if not run["reviewable"]:
-        return {"ok": False, "error": "this run is not ready for Full discovery yet"}
     if run["mode"] == "FULL":
         return {"ok": False, "error": "Full discovery has already run for this result"}
+    if not run["full_offerable"]:
+        return {"ok": False, "error": "this run is not ready for Full discovery yet"}
 
     job_id = context.client.run_plugin_task(
         settings.PLUGIN_ID, TASK_DISCOVER_PERFORMERS,
@@ -762,8 +762,8 @@ def _run_brief(run):
             ("id", "scene_id", "entity_id", "entity_type", "mode", "status", "trigger",
              "job_id", "started_at", "finished_at", "decided_at", "source_count",
              "ok_source_count", "error_count", "url_count", "result_count",
-             "max_depth_reached", "stop_reason", "error", "reviewable", "purged",
-             "progress")}
+             "max_depth_reached", "stop_reason", "error", "reviewable",
+             "full_offerable", "purged", "progress")}
 
 
 HANDLERS = {

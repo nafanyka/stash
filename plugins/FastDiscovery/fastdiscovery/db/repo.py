@@ -310,6 +310,14 @@ class Repo:
         run["reviewable"] = run["status"] in REVIEWABLE and not run["purged"]
         run["entity_type"] = run.get("entity_type") or "scene"
         run["mode"] = run.get("mode") or "FAST"
+        # Full is offered even when Fast found nothing to review - that is exactly
+        # when trying the scrapers Fast did not use matters most, not a reason to
+        # withhold the one thing that could still turn up something. `reviewable`
+        # itself stays narrow (there being an actual matrix to look at), because
+        # Review/Apply/Reject genuinely need one; this is the separate question of
+        # whether a Full pass on top of this run still makes sense at all.
+        run["full_offerable"] = (not run["purged"] and run["mode"] != "FULL"
+                                 and (run["reviewable"] or run["status"] == NO_RESULTS))
         # `scene_id` is the historical column name; every new (entity-agnostic) code
         # path reads `entity_id` instead, and `entity_snapshot` instead of
         # `scene_snapshot`. Both names stay populated with the same value so existing
