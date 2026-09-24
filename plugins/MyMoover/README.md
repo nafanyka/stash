@@ -76,16 +76,26 @@ the source and destination folders touched, only when you press it.
 
 ## Where the button lives
 
-Stash's Scenes bulk-selection dropdown (Play / Edit / Delete / Generate / Identify /
-...) is built from a local variable inside `FilteredSceneList` in Stash's own
-frontend, not a name a plugin can attach to — a check against the current
-`stashapp/stash` source (the tag this was verified on and `develop`) found no trace
-of a `SceneListOperations`-style patch point some notes elsewhere assume exists.
-What *is* stable and patchable is the inner `SceneList` component, which receives the
-exact same `selectedIds`/`onSelectChange` the native toolbar uses and renders
-identically across Grid/List/Wall/Tagger — MyMoover attaches its **Move** bar there,
-the same `PluginApi.patch.after` technique this repo's PerformerOrganized plugin uses
-for `PerformerList`.
+**Move** appears inline inside Stash's own selection toolbar — the same
+Play / Edit / Delete / "..." row that appears once something is selected — not in a
+separate control of its own. That row (`<div className="list-operations">`, built by
+`ui/v2.5/src/components/List/ListOperationButtons.tsx`) is a local variable inside
+`FilteredSceneList`, not a name a plugin can patch directly — a check against the
+current `stashapp/stash` source (the tag this was verified on, and `develop`) found
+no trace of a `SceneListOperations`-style patch point some notes elsewhere assume
+exists, and nothing in `ListOperationButtons.tsx` is wrapped for patching either.
+
+So MyMoover patches `FilteredSceneList` itself with `PluginApi.patch.after`, and does
+a small, depth-bounded search over the element tree it *already rendered* (not a live
+DOM query — plain React element objects) for that `list-operations` row, inserting
+the Move button right after it. The same pass also reads the current selection
+(`selectedIds`/`onSelectChange`) directly off the `SceneList` element sitting in that
+same tree, matched by component reference rather than by name, so it's never a render
+behind. The search stops at the first match, so the (potentially large) card grid
+sitting next to that row is never walked or re-cloned. If a future Stash release
+changes this enough that the row can't be found, Move still appears — just as its own
+small bar above the list instead of inline with the native one — rather than silently
+disappearing.
 
 ## Security
 

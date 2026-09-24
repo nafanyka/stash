@@ -6,11 +6,19 @@
  * nothing here restyles a Stash class, so no other plugin's UI is disturbed.
  */
 
+/* Fallback only: used when the native "list-operations" row could not be found in
+   the rendered tree, so Move still shows up as its own row above the list. */
 .mymoover-toolbar {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   margin: 0 0 0.75rem;
+}
+
+/* The normal case: sits inline, right after Stash's own Play/Edit/Delete/"..."
+   button group, inside its row. */
+.mymoover-trigger-btn {
+  margin-left: 0.5rem;
 }
 
 .mymoover-modal .modal-body {

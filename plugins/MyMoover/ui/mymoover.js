@@ -14,13 +14,13 @@
  *    would make browsing feel broken for no safety benefit (nothing destructive ever
  *    happens from a browse call).
  *
- * The button is attached to `SceneList` (ui/v2.5/src/components/Scenes/SceneList.tsx)
- * via `patch.after`, the same technique PerformerOrganized already uses in this repo
- * for `PerformerList`. This is not literally inside Stash's native selected-items
- * dropdown - that dropdown's action list is a local variable inside
- * `FilteredSceneList`, not something a plugin can patch - so instead a small bar
- * renders directly above the scene grid/list/wall, in every display mode, wired to
- * the exact same `selectedIds`/`onSelectChange` the native toolbar uses.
+ * The button is injected straight into Stash's own selection toolbar (the
+ * Play/Edit/Delete/"..." row that appears once something is selected), by patching
+ * `FilteredSceneList` (ui/v2.5/src/components/Scenes/SceneList.tsx) with
+ * `patch.after` and doing a small, depth-bounded search over its *already rendered*
+ * element tree for that row - see the "tree search" section below for why this is
+ * safe and cheap, and what it falls back to if Stash's markup ever changes enough
+ * that the row cannot be found.
  */
 (function () {
   "use strict";
@@ -411,13 +411,24 @@
     var error = React.useState(null);
     var analyzed = React.useState(null); // { scenes, items, counts, destination_folder }
     var moveResult = React.useState(null);
-    var roots = React.useState([]);
+    var roots = React.useState({ loaded: false, list: [] });
 
     React.useEffect(function () {
       callOp("config", {}).then(
-        function (result) { roots[1](result.roots || []); },
-        function (failure) { warn("could not load library roots: " + failure.message); }
+        function (result) {
+          var loaded = result.roots || [];
+          roots[1]({ loaded: true, list: loaded });
+          // Start the browser inside the library, not wherever the Stash process
+          // happens to call home (e.g. /root in a container) - that home directory
+          // is not even guaranteed to be readable, and is never where the media is.
+          if (loaded.length && !browsePath[0]) browsePath[1](loaded[0]);
+        },
+        function (failure) {
+          warn("could not load library roots: " + failure.message);
+          roots[1]({ loaded: true, list: [] });
+        }
       );
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     function analyze() {
@@ -479,42 +490,48 @@
 
     var body;
     if (step[0] === "destination") {
-      body = h(
-        React.Fragment,
-        null,
-        destination[0]
-          ? h("div", { className: "mymoover-selected" }, "Selected:", h("br"), h("code", null, destination[0]))
-          : null,
-        roots[0].length
-          ? h(
-              "div",
-              { className: "mymoover-roots" },
-              roots[0].map(function (root) {
-                return h(
-                  Button,
-                  {
-                    key: root, size: "sm", variant: "outline-secondary",
-                    className: "mymoover-root-btn",
-                    onClick: function () { browsePath[1](root); },
-                  },
-                  root
-                );
-              })
-            )
-          : null,
-        h(FolderBrowser, {
-          path: browsePath[0],
-          onNavigate: function (path) { browsePath[1](path); },
-          onSelect: function (path) { destination[1](path); },
-        }),
-        h(NewFolderForm, {
-          parentPath: browsePath[0] || destination[0] || "",
-          onCreated: function (path) {
-            destination[1](path);
-            browsePath[1](path);
-          },
-        })
-      );
+      if (!roots[0].loaded) {
+        body = h("div", { className: "mymoover-loading" }, "Loading library roots…");
+      } else if (!roots[0].list.length) {
+        body = h("div", { className: "mymoover-error" },
+          "No Stash library paths are configured (Settings → Library). MyMoover " +
+          "only allows destinations inside a configured library path.");
+      } else {
+        body = h(
+          React.Fragment,
+          null,
+          destination[0]
+            ? h("div", { className: "mymoover-selected" }, "Selected:", h("br"), h("code", null, destination[0]))
+            : null,
+          h(
+            "div",
+            { className: "mymoover-roots" },
+            roots[0].list.map(function (root) {
+              return h(
+                Button,
+                {
+                  key: root, size: "sm", variant: "outline-secondary",
+                  className: "mymoover-root-btn",
+                  onClick: function () { browsePath[1](root); },
+                },
+                root
+              );
+            })
+          ),
+          h(FolderBrowser, {
+            path: browsePath[0],
+            onNavigate: function (path) { browsePath[1](path); },
+            onSelect: function (path) { destination[1](path); },
+          }),
+          h(NewFolderForm, {
+            parentPath: browsePath[0] || destination[0] || "",
+            onCreated: function (path) {
+              destination[1](path);
+              browsePath[1](path);
+            },
+          })
+        );
+      }
     } else if (step[0] === "review" && analyzed[0]) {
       var items = analyzed[0].items;
       var counts = summaryCounts(items, "status");
@@ -617,21 +634,29 @@
 
   /* ---------------------------------------------------------------- toolbar */
 
-  function MoveToolbar(props) {
+  // The button itself, with the modal it opens. `inline` drops the block-level
+  // wrapper so it sits flush inside Stash's own operations row when injection
+  // succeeds; the fallback path (see below) wants the wrapper's own spacing.
+  function MoveTrigger(props) {
     var ids = idsOf(props.selectedIds);
     var open = React.useState(false);
 
     if (!ids.length) return null;
 
+    var button = h(
+      Button,
+      {
+        size: "sm", variant: "secondary", className: "mymoover-trigger-btn",
+        title: "Move " + ids.length + " scene" + (ids.length === 1 ? "" : "s"),
+        onClick: function () { open[1](true); },
+      },
+      "Move (" + ids.length + ")"
+    );
+
     return h(
       React.Fragment,
       null,
-      h(
-        "div",
-        { className: "mymoover-toolbar" },
-        h(Button, { size: "sm", variant: "secondary", onClick: function () { open[1](true); } },
-          "Move (" + ids.length + ")")
-      ),
+      props.inline ? button : h("div", { className: "mymoover-toolbar" }, button),
       open[0]
         ? h(MoveModal, {
             sceneIds: ids,
@@ -646,24 +671,137 @@
     );
   }
 
+  /* ------------------------------------------------------------- tree search */
+
+  // Stash's Scenes bulk-selection row (Play/Edit/Delete/"...") is rendered deep
+  // inside `FilteredSceneList`'s own output, as a local `<div className=
+  // "list-operations">` - not a name a plugin can `patch` directly (checked
+  // against the real ui/v2.5/src/components/List/ListOperationButtons.tsx source:
+  // nothing in that file is wrapped in PatchComponent). Rather than assume a
+  // string class name never changes, this reads the already-selected scene ids
+  // straight off the `SceneList` *element* sitting in the same rendered tree -
+  // `PluginApi.components.SceneList` is the exact reference used in that JSX,
+  // found via `element.type ===`, so this never depends on SceneList having
+  // actually run yet (it hasn't - React elements are just descriptors until
+  // reconciled) and is never a render behind.
+  //
+  // Both walks are depth-bounded and stop at the first match, so once the
+  // operations row (which renders near the top, before the card grid) is found,
+  // nothing below it - the grid itself - is ever visited or re-cloned, and a
+  // structure Stash changes in a future release costs nothing worse than falling
+  // back to the block toolbar below the list.
+  var MAX_SEARCH_DEPTH = 14;
+
+  function findInTree(element, predicate, depth) {
+    if (depth < 0 || !React.isValidElement(element)) return null;
+    if (predicate(element)) return element;
+    var children = element.props && element.props.children;
+    if (children == null) return null;
+    var found = null;
+    React.Children.forEach(children, function (child) {
+      if (!found) found = findInTree(child, predicate, depth - 1);
+    });
+    return found;
+  }
+
+  function hasClass(element, name) {
+    var className = element.props && element.props.className;
+    return !!className && (" " + className + " ").indexOf(" " + name + " ") !== -1;
+  }
+
+  // Clones every ancestor from `element` down to the first node matching
+  // `predicate`, inserting `extra` as that node's next sibling. Everything
+  // outside that one path - every sibling subtree, including the card grid -
+  // keeps its original object identity, so nothing there re-renders.
+  function injectAfter(element, predicate, extra, depth) {
+    if (depth < 0 || !React.isValidElement(element)) return { node: element, done: false };
+    if (predicate(element)) {
+      return { node: h(React.Fragment, { key: "mymoover-wrap" }, element, extra), done: true };
+    }
+    var children = element.props && element.props.children;
+    if (children == null) return { node: element, done: false };
+    var done = false;
+    var newChildren = React.Children.map(children, function (child) {
+      if (done) return child;
+      var result = injectAfter(child, predicate, extra, depth - 1);
+      if (result.done) {
+        done = true;
+        return result.node;
+      }
+      return child;
+    });
+    if (!done) return { node: element, done: false };
+    return { node: React.cloneElement(element, null, newChildren), done: true };
+  }
+
+  // A patched component's return value is usually one element (or a Fragment, which
+  // is itself a valid element with its own `.props.children`), but React also allows
+  // a bare array - `React.Children.forEach`/`.map` handle a single node, an array,
+  // or null uniformly, so these two entry points use them instead of assuming
+  // `result` is itself something `findInTree`/`injectAfter` can recurse into
+  // directly.
+  function findAtRoot(root, predicate, depth) {
+    var found = null;
+    React.Children.forEach(root, function (child) {
+      if (!found) found = findInTree(child, predicate, depth);
+    });
+    return found;
+  }
+
+  function injectAtRoot(root, predicate, extra, depth) {
+    var done = false;
+    var mapped = React.Children.map(root, function (child) {
+      if (done) return child;
+      var result = injectAfter(child, predicate, extra, depth);
+      if (result.done) {
+        done = true;
+        return result.node;
+      }
+      return child;
+    });
+    // A one-element array renders exactly like the bare element it replaces, so
+    // returning the (possibly rewrapped) array in place of a single original
+    // element is safe either way.
+    return { node: mapped, done: done };
+  }
+
   /* ------------------------------------------------------------------ patch */
 
-  api.patch.after("SceneList", function () {
-    var props = arguments[0];
+  api.patch.after("FilteredSceneList", function () {
     var result = arguments[arguments.length - 1];
-    if (!props) return result;
+    if (!result) return result;
+
+    var sceneListType = api.components && api.components.SceneList;
+    var sceneListElement = sceneListType
+      ? findAtRoot(result, function (el) { return el.type === sceneListType; }, MAX_SEARCH_DEPTH)
+      : null;
+    if (!sceneListElement) return result; // structure changed too much to find selection state
+
+    var selectedIds = sceneListElement.props.selectedIds;
+    var onSelectChange = sceneListElement.props.onSelectChange;
+    var trigger = h(MoveTrigger, {
+      key: "mymoover-inline", inline: true,
+      selectedIds: selectedIds, onSelectChange: onSelectChange,
+    });
+
+    var injected = injectAtRoot(
+      result,
+      function (el) { return hasClass(el, "list-operations"); },
+      trigger,
+      MAX_SEARCH_DEPTH
+    );
+    if (injected.done) return injected.node;
+
+    // The native operations row was not found - still surface Move rather than
+    // hide it, just as its own row above the list instead of inline with it.
     return h(
       React.Fragment,
       null,
-      h(MoveToolbar, {
-        key: "mymoover-toolbar",
-        selectedIds: props.selectedIds,
-        onSelectChange: props.onSelectChange,
-      }),
+      h(MoveTrigger, { key: "mymoover-fallback", selectedIds: selectedIds, onSelectChange: onSelectChange }),
       result
     );
   });
 
   window.MyMoover = { log: log, warn: warn };
-  log("UI attached: Move toolbar above the Scenes list");
+  log("UI attached: Move button in the Scenes selection toolbar");
 })();

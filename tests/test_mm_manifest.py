@@ -59,13 +59,21 @@ def test_settings_match_what_settings_py_reads():
     assert declared == {"moveSidecars", "sidecarPatterns", "debugLogging"}
 
 
-def test_only_the_sceneList_patch_point_is_used():
+def test_only_the_filteredSceneList_patch_point_is_used():
     # SceneListOperations, referenced by a sibling plugin's own notes, does not exist
     # in the actual current Stash source (verified against stashapp/stash v0.31.1 and
-    # develop) - SceneList is the real, stable, patchable equivalent. See the plugin
-    # README for the full writeup.
+    # develop). FilteredSceneList is the real, patchable component whose rendered
+    # output the native selection toolbar sits in - see the plugin README.
     used = set(re.findall(r'api\.patch\.\w+\("([^"]+)"', source("ui", "mymoover.js")))
-    assert used == {"SceneList"}
+    assert used == {"FilteredSceneList"}
+
+
+def test_the_native_toolbar_lookup_always_falls_back():
+    # A structure change in a future Stash release must degrade to a visible button
+    # in its own row, never to a Move control that silently disappears.
+    text = source("ui", "mymoover.js")
+    assert "mymoover-fallback" in text
+    assert "if (!sceneListElement) return result;" in text
 
 
 def test_every_frontend_op_call_has_a_backend_handler():
