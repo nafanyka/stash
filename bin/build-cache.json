@@ -5,6 +5,10 @@
       "fingerprint": "93d2183859dcc2675b4a9eb1ba2117d9237c03012a894c7083b3c82813a2ddb1",
       "version": "0.5.3"
     },
+    "plugins/MyMoover": {
+      "fingerprint": "aaa679a673b396df3e409a5d860b74fad01fc2b4eff46f9634348708369699ce",
+      "version": "0.1.0"
+    },
     "plugins/MyPerformerBodyCalculator": {
       "fingerprint": "6a4bd01ffb208bcf56b69562371dd3ba69466262147e05e56ed8a2bbc65b2cf1",
       "version": "1.3.0"

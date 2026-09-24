@@ -1,0 +1,97 @@
+# MyMoover
+
+Bulk-moves the physical files of selected **Scenes** to a destination folder, straight
+from the Scenes page — media plus sidecars (funscripts, subtitles, ...), with a
+dry-run preflight and per-conflict overwrite decisions before anything on disk moves.
+
+## Using it
+
+1. Select one or more Scenes on the Scenes page. A small **Move** bar appears above
+   the list (see *Where the button lives*, below) showing how many are selected.
+2. Pick a destination folder — browse from one of your configured library roots, or
+   create a new folder inside the folder you're browsing with **+ New Folder**.
+3. **Analyze**. Nothing on disk changes yet. You get counts (`N scenes`, `N media
+   files`, `N sidecars`) and, for every filename that already exists at the
+   destination, who it belongs to and an **Overwrite** checkbox — unchecked means
+   skip, and that is the default. `Select all` / `Select none` only changes the
+   checkboxes; every one is still applied individually.
+4. **Move**. Only what you approved changes: files that are already in the
+   destination are left alone and reported as such, a Scene's files that were not
+   selected are untouched, and a skipped conflict keeps its target exactly as it was.
+5. A result screen shows what happened per file (moved / already there / overwritten
+   / skipped / error), plus a **Scan affected folders** button if you want Stash to
+   pick up anything a scan would notice - see *Rescanning*, below. Nothing is scanned
+   automatically.
+
+Only the **files** move. `/old/Bonnie/video.mp4` moved to `/new/` becomes
+`/new/video.mp4` — never `/new/Bonnie/video.mp4` — and `/old/Bonnie/` is left in
+place, even once it's empty. A Scene with several Files moves every one of them;
+there is no "primary file only".
+
+## Settings
+
+| Setting | Default | |
+| --- | --- | --- |
+| **Move sidecar files** | on | Off moves media only. |
+| **Sidecar patterns** | funscripts (incl. multi-axis), `.srt`, `.vtt`, `.ass`, `.ssa`, `.nfo`, `.json` | Comma/newline-separated. `*` stands for one wildcard segment, so `.*.funscript` also matches `.L0.funscript`, `.R1.funscript`, etc. Only the media file's own source folder is searched — never recursively. |
+| **Debug logging** | off | |
+
+## How a move actually happens
+
+Every physical move and every `File.path` update goes through Stash's own
+`moveFiles` mutation — the plugin never edits Stash's database directly, and never
+does a bare filesystem rename of a file Stash tracks. `moveFiles` runs the rename (or,
+on a cross-device destination, copy-then-delete) and the database update in one
+transaction, so a Scene's title, performers, tags, studio, rating, o-counter and
+everything else are untouched — only the file's path changes. Sidecars are not File
+records in Stash's schema at all, so those are moved by the plugin directly on disk,
+using the same rename-or-copy-then-delete fallback Stash's own mover uses.
+
+### Conflicts and overwrite
+
+If the target path is already taken, `moveFiles` refuses on its own rather than
+silently replacing it, and MyMoover asks you before doing anything about it. When you
+approve an overwrite and the target is a file Stash already tracks:
+
+* it belongs to a Scene that has other files too → that Scene keeps its other files;
+  the conflicting one is reassigned away from being primary if it was, then removed
+  (`sceneUpdate(primary_file_id: ...)` + `deleteFiles`);
+* it is that Scene's only file → the Scene itself is removed
+  (`sceneDestroy(delete_file: true, destroy_file_entry: true)`) — there is no
+  Stash-supported way to detach a Scene's last file and leave an empty Scene behind;
+* the target exists on disk but Stash has no record of it at all → it's just deleted.
+
+Right before any of this runs, the current state is checked again against what
+Analyze showed you. If it changed — a different file turned up, the owning Scene
+changed — the item is marked **changed since Analyze** and left alone rather than
+overwritten blind. One item failing (permission error, disappeared mid-move, ...)
+never stops the rest of the batch.
+
+### Rescanning
+
+Because `moveFiles` updates `File.path` itself, a moved media file does not need a
+rescan to show its new location. Nothing here ever starts a scan on its own — the
+**Scan affected folders** button after a Move runs `metadataScan` scoped to exactly
+the source and destination folders touched, only when you press it.
+
+## Where the button lives
+
+Stash's Scenes bulk-selection dropdown (Play / Edit / Delete / Generate / Identify /
+...) is built from a local variable inside `FilteredSceneList` in Stash's own
+frontend, not a name a plugin can attach to — a check against the current
+`stashapp/stash` source (the tag this was verified on and `develop`) found no trace
+of a `SceneListOperations`-style patch point some notes elsewhere assume exists.
+What *is* stable and patchable is the inner `SceneList` component, which receives the
+exact same `selectedIds`/`onSelectChange` the native toolbar uses and renders
+identically across Grid/List/Wall/Tagger — MyMoover attaches its **Move** bar there,
+the same `PluginApi.patch.after` technique this repo's PerformerOrganized plugin uses
+for `PerformerList`.
+
+## Security
+
+The backend never trusts a path the browser sent it. Every destination and every new
+folder name is checked against `configuration.general.stashes` (resolved with
+`realpath`, so a symlink can't point outside a configured root), a new folder's name
+is rejected if it contains a path separator, `..`, or is otherwise not a bare name,
+and every source path acted on is the path Stash itself reports for that exact File
+ID — never one echoed back from the UI.

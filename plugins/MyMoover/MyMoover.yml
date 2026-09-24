@@ -1,0 +1,44 @@
+name: MyMoover
+description: >-
+  Bulk-moves the physical media files of selected Scenes to a destination folder,
+  straight from the Scenes page. Moves sidecar files (funscripts, subtitles, ...)
+  alongside the media, shows a dry-run preflight before touching anything, and lets
+  you resolve filename conflicts one by one. Physical moves and Stash's File.path go
+  through Stash's own moveFiles API, so metadata and Scene association survive.
+version: 0.1.0
+url: https://github.com/nafanyka/stash
+
+exec:
+  - python
+  - "{pluginDir}/MyMoover.py"
+interface: raw
+
+ui:
+  javascript:
+    - ui/mymoover.js
+  css:
+    - ui/mymoover.css
+
+settings:
+  moveSidecars:
+    displayName: Move sidecar files
+    description: >-
+      Alongside each media file, also move files in the same source folder that match
+      one of the sidecar patterns below (funscripts, subtitles, ...). On by default.
+    type: BOOLEAN
+  sidecarPatterns:
+    displayName: Sidecar patterns
+    description: >-
+      Comma- or newline-separated list of filename patterns matched against each
+      media file's own basename. A pattern is the part of the filename after the
+      basename: ".funscript" matches "<basename>.funscript"; a single "*" stands for
+      one wildcard segment, so ".*.funscript" also matches "<basename>.L0.funscript",
+      "<basename>.R1.funscript", etc. Matching is case-insensitive and only looks in
+      the media file's own source folder, never recursively. Leave empty to use the
+      built-in default list (funscripts incl. multi-axis, .srt, .vtt, .ass, .ssa,
+      .nfo, .json).
+    type: STRING
+  debugLogging:
+    displayName: Debug logging
+    description: Log every planned and executed move in detail.
+    type: BOOLEAN

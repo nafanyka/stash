@@ -25,6 +25,9 @@ scrapers/<Name>/<Name>.yml    scraper manifest (+ .py next to it)
   plugins/path_vr_tagger/     tags a scene VR/NonVR from its file path, on save
   plugins/performer-url-cleanup/  normalises, deduplicates and sorts performer URLs
   plugins/stashdb-tag-sync/   syncs tags from StashDB into the local instance
+  plugins/MyMoover/           bulk-moves selected Scenes' files (+ sidecars) to a
+                              folder from the Scenes page, with a dry-run preflight
+                              and per-conflict overwrite decisions
 common/python/stash_common/   shared helpers, bundled into packages that import them
 docs/                         architecture and dev notes for FastDiscovery
 tests/                        pytest suite, no Stash server needed
@@ -54,6 +57,12 @@ performer page, an icon on the card, bulk *Set organized*, and a server-side
 `Organized = Yes/No` filter in the standard Performers list. It stores the flag in the
 performer's own `custom_fields`, so nothing about it depends on the plugin staying
 installed.
+
+**[MyMoover](plugins/MyMoover/README.md)** bulk-moves the physical files of selected
+Scenes to a destination folder from the Scenes page — media and sidecars (funscripts,
+subtitles, ...) together, with a dry-run preflight and a per-conflict overwrite
+decision before anything on disk changes. Every physical move and every `File.path`
+update goes through Stash's own `moveFiles` mutation, never a direct database edit.
 
 One `.yml` per folder, named after the folder. Stash scans the scrapers directory
 recursively and tries to load **every** `.yml` it finds as a scraper config, so a

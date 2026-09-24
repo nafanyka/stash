@@ -10,10 +10,24 @@
       the moment you decide. Also does the same for performers: every performer-name
       scraper you pick (Fast), or every installed one (Full), each result kept as
       its own column, URLs followed the same way, reviewed the same way.'
-  version: 0.5.3-1a038d6
-  date: '2026-09-19 15:54:22'
+  version: 0.5.3-f6ef7e5
+  date: '2026-09-20 08:55:38'
   path: FastDiscovery.zip
   sha256: 37c01aa3f0544893589805a81d5ef5c39a439a474b821d54abfcd6629abfc6e1
+  requires: []
+- id: MyMoover
+  name: MyMoover
+  metadata:
+    description: Bulk-moves the physical media files of selected Scenes to a destination
+      folder, straight from the Scenes page. Moves sidecar files (funscripts, subtitles,
+      ...) alongside the media, shows a dry-run preflight before touching anything,
+      and lets you resolve filename conflicts one by one. Physical moves and Stash's
+      File.path go through Stash's own moveFiles API, so metadata and Scene association
+      survive.
+  version: 0.1.0-0000000
+  date: '1970-01-01 00:00:00'
+  path: MyMoover.zip
+  sha256: a1ca9f4d3384c48859dfe626a763c03a8b2dfb07720bbf453ca59418bff5a8dd
   requires: []
 - id: MyPerformerBodyCalculator
   name: My Performer Body Calculator
