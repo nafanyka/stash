@@ -24,10 +24,10 @@
       and lets you resolve filename conflicts one by one. Physical moves and Stash's
       File.path go through Stash's own moveFiles API, so metadata and Scene association
       survive.
-  version: 0.1.0-fc553ec
-  date: '2026-09-24 12:12:41'
+  version: 0.1.0-ef15a14
+  date: '2026-09-24 13:54:17'
   path: MyMoover.zip
-  sha256: 32f35955f29d82836d6ff6c02f6809f88f71db345d88eba61c713b52740f268a
+  sha256: 94dfb9b3297c8b9f0f94ebf40c5bb33d775623f1c3b60dd02957d3fe5f5304a0
   requires: []
 - id: MyPerformerBodyCalculator
   name: My Performer Body Calculator

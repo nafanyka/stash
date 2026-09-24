@@ -673,23 +673,39 @@
 
   /* ------------------------------------------------------------- tree search */
 
-  // Stash's Scenes bulk-selection row (Play/Edit/Delete/"...") is rendered deep
-  // inside `FilteredSceneList`'s own output, as a local `<div className=
-  // "list-operations">` - not a name a plugin can `patch` directly (checked
-  // against the real ui/v2.5/src/components/List/ListOperationButtons.tsx source:
-  // nothing in that file is wrapped in PatchComponent). Rather than assume a
-  // string class name never changes, this reads the already-selected scene ids
-  // straight off the `SceneList` *element* sitting in the same rendered tree -
-  // `PluginApi.components.SceneList` is the exact reference used in that JSX,
-  // found via `element.type ===`, so this never depends on SceneList having
-  // actually run yet (it hasn't - React elements are just descriptors until
-  // reconciled) and is never a render behind.
+  // Stash's Scenes bulk-selection row (Play/Edit/Delete/"...") is built by
+  // `ListOperations` (ui/v2.5/src/components/List/ListOperationButtons.tsx),
+  // called from `FilteredSceneList` roughly as:
   //
-  // Both walks are depth-bounded and stop at the first match, so once the
-  // operations row (which renders near the top, before the card grid) is found,
-  // nothing below it - the grid itself - is ever visited or re-cloned, and a
-  // structure Stash changes in a future release costs nothing worse than falling
-  // back to the block toolbar below the list.
+  //   <ListOperations items={...} hasSelection={...} operations={otherOperations}
+  //     onEdit={onEdit} onDelete={onDelete} onPlay={onPlay} ... />
+  //
+  // and nothing in that file is wrapped in `PatchComponent`, so there is no name a
+  // plugin can attach to directly, and no `className` a plugin can search the
+  // *rendered* tree for either: what `patch.after("FilteredSceneList", ...)`
+  // receives is a tree of still-unexecuted React elements, and `<ListOperations
+  // .../>` is one leaf in it - its own render (the actual
+  // `<div className="list-operations">...</div>` a browser DOM inspector shows)
+  // has not run yet, so no className born inside it can ever be found here, no
+  // matter how the string is spelled (this was tried and confirmed not to work).
+  //
+  // What *can* be matched, because it lives directly in `FilteredSceneList`'s own
+  // JSX and is visible on the element before it is ever executed, is that
+  // `<ListOperations>` call's own props: `operations` (an array) together with
+  // `onEdit`/`onDelete` (functions) is a distinctive enough fingerprint that nothing
+  // else in a Scenes page render is expected to match it. The Move button is then
+  // inserted as that element's next sibling - not inside it - so nothing about
+  // `ListOperations`'s own internals needs to be understood or relied on.
+  //
+  // The `SceneList` element (for the current `selectedIds`/`onSelectChange`) is
+  // found the same way, matched by component reference via
+  // `PluginApi.components.SceneList` rather than by name or props.
+  //
+  // Both walks are depth-bounded and stop at the first match, so once a match is
+  // found near the top of the tree, the (potentially large) card grid sitting next
+  // to it is never visited or re-cloned, and if Stash's structure ever changes
+  // enough that nothing matches, this costs nothing worse than falling back to a
+  // block toolbar below the list.
   var MAX_SEARCH_DEPTH = 14;
 
   function findInTree(element, predicate, depth) {
@@ -704,9 +720,11 @@
     return found;
   }
 
-  function hasClass(element, name) {
-    var className = element.props && element.props.className;
-    return !!className && (" " + className + " ").indexOf(" " + name + " ") !== -1;
+  function isOperationsElement(element) {
+    var props = element.props || {};
+    return Array.isArray(props.operations)
+      && typeof props.onEdit === "function"
+      && typeof props.onDelete === "function";
   }
 
   // Clones every ancestor from `element` down to the first node matching
@@ -786,7 +804,7 @@
 
     var injected = injectAtRoot(
       result,
-      function (el) { return hasClass(el, "list-operations"); },
+      isOperationsElement,
       trigger,
       MAX_SEARCH_DEPTH
     );

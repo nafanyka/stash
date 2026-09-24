@@ -86,15 +86,23 @@ no trace of a `SceneListOperations`-style patch point some notes elsewhere assum
 exists, and nothing in `ListOperationButtons.tsx` is wrapped for patching either.
 
 So MyMoover patches `FilteredSceneList` itself with `PluginApi.patch.after`, and does
-a small, depth-bounded search over the element tree it *already rendered* (not a live
-DOM query — plain React element objects) for that `list-operations` row, inserting
-the Move button right after it. The same pass also reads the current selection
-(`selectedIds`/`onSelectChange`) directly off the `SceneList` element sitting in that
-same tree, matched by component reference rather than by name, so it's never a render
-behind. The search stops at the first match, so the (potentially large) card grid
+a small, depth-bounded search over the element tree it returns. That tree is not yet
+rendered — `<ListOperations .../>` is still an *unexecuted* element descriptor at
+this point, so the `list-operations` class its own render eventually produces does
+not exist yet and can never be found this way (confirmed the hard way: the first cut
+of this searched for that class name and never matched anything). What the search
+matches instead is the `<ListOperations>` call itself, by its own props — an
+`operations` array together with `onEdit`/`onDelete` functions is distinctive enough
+that nothing else in the tree is expected to match — and inserts the Move button as
+that element's *next sibling*, so it lands exactly where `ListOperations` renders,
+without needing to know anything about its internals. The same pass also reads the
+current selection (`selectedIds`/`onSelectChange`) directly off the `SceneList`
+element sitting in the same tree, matched by component reference
+(`PluginApi.components.SceneList`) rather than by name, so it's never a render
+behind. Both searches stop at the first match, so the (potentially large) card grid
 sitting next to that row is never walked or re-cloned. If a future Stash release
-changes this enough that the row can't be found, Move still appears — just as its own
-small bar above the list instead of inline with the native one — rather than silently
+changes this enough that nothing matches, Move still appears — just as its own small
+bar above the list instead of inline with the native one — rather than silently
 disappearing.
 
 ## Security
