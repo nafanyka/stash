@@ -1176,6 +1176,10 @@
     // a decided run has no results left to show, and re-fetching one only to render
     // "those are gone" reads like a failure when it is the successful outcome.
     var decided = React.useState(null);
+    // Ticked to begin with: a scene you have read a review of and applied is a scene
+    // you have been through, which is what Organized means. Unticking only leaves the
+    // flag alone - it never clears one the scene already had.
+    var organize = React.useState(true);
     var toaster = useToaster();
     var starter = useRunStarter(function () {
       toaster.success("FastDiscovery queued. This page updates when it finishes.");
@@ -1322,7 +1326,8 @@
                 // Apply also tags the scene, so it can be told apart later from one
                 // FastDiscovery has never written to. Said out loud, because it is the
                 // one change nobody ticked.
-                (result.marker ? " Tagged " + result.marker.name + "." : "")
+                (result.marker ? " Tagged " + result.marker.name + "." : "") +
+                (result.organized ? " Marked Organized." : "")
               : "FastDiscovery results rejected. The scene was not touched.";
           toaster.success(message);
           announceChange();
@@ -1339,7 +1344,8 @@
             changes: result.changes || [],
             created: result.created || {},
             linked: result.linked || {},
-            marker: result.marker || null
+            marker: result.marker || null,
+            organized: result.organized || null
           });
         },
         function (failure) {
@@ -1427,6 +1433,22 @@
           "Nothing has been written to this scene yet."
         ),
         h(
+          "label",
+          {
+            className: "fd-organize",
+            title: data.scene.organized
+              ? "This scene is already organized"
+              : "Mark the scene Organized when you apply"
+          },
+          h("input", {
+            type: "checkbox",
+            checked: !!organize[0],
+            disabled: !!data.scene.organized,
+            onChange: function (event) { organize[1](event.target.checked); }
+          }),
+          data.scene.organized ? " Organized already" : " Organize"
+        ),
+        h(
           "div",
           { className: "fd-actions" },
           h(
@@ -1437,6 +1459,7 @@
               onClick: function () {
                 decide("apply.commit", {
                   selection: selection[0],
+                  organize: organize[0],
                   expected_updated_at: data.scene.updated_at
                 });
               }
@@ -1502,7 +1525,8 @@
                 outcome.changes.map(function (change) { return change.field; }).join(", ") +
                 (createdLine ? ". Created: " + createdLine : "") +
                 (linkedLine ? ". Already existed, linked: " + linkedLine : "") + "." +
-                (outcome.marker ? " Tagged " + outcome.marker.name + "." : "")
+                (outcome.marker ? " Tagged " + outcome.marker.name + "." : "") +
+                (outcome.organized ? " Marked Organized." : "")
             )
           : null,
         h(

@@ -95,12 +95,11 @@ fi
 if [ "$RUN_TESTS" -eq 1 ]; then
   echo
   bold "Running tests..."
-  # Scoped to tests/ on purpose: a plugin folder can ship its own bundled test file
-  # (a third-party plugin's own test_*.py sitting next to its source), and bare
-  # `pytest -q` from the repo root discovers those too - with none of the
-  # dependencies or fixtures they expect, so they fail the build for a reason that
-  # has nothing to do with this repo's own suite.
-  if ! "$PYTHON" -m pytest -q tests/; then
+  # The whole repository, not just tests/: a plugin is free to keep its own tests next
+  # to its source, and an edit to that plugin should be checked by them. A plugin whose
+  # tests need something that is not installed here should skip, not fail - that is what
+  # `pytest.importorskip` is for, and a collection error names the file that needs it.
+  if ! "$PYTHON" -m pytest -q; then
     echo
     echo "Tests failed - dist/ not touched." >&2
     exit 1

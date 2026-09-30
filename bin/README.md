@@ -17,7 +17,14 @@ PowerShell.
    It reports each component as **new**, **version changed**, **changed without a
    version bump**, or **unchanged**.
 2. **Stops right there** if nothing changed. Nothing is rewritten, nothing to commit.
-3. **Runs the tests.** If they fail, `dist/` is not touched.
+3. **Runs the tests** — every test in the repository, including the ones plugins keep
+   next to their own source. If they fail, `dist/` is not touched.
+
+   A plugin whose tests need something that is not installed here (`stashapi`, say)
+   should skip rather than fail: put `pytest.importorskip("stashapi")` at the top of the
+   test module. Without it the import error stops *collection*, which means no suite in
+   the repository runs at all — so if the build stops with a collection error, that is
+   the fix, and the message names the file.
 4. **Parses every plugin's JavaScript** with `node --check`. A syntax error in plugin UI
    code never reaches the test suite — it shows up as a page that silently refuses to
    load — so it is caught here instead. Skipped if `node` is not installed.

@@ -1,6 +1,6 @@
 name: Performer URL Cleanup
 description: Normalises, deduplicates, and sorts performer URLs
-version: 1.0.0
+version: 1.0.1
 url: https://github.com/nafanyka/stash
 exec:
   - python3

@@ -10,10 +10,10 @@
       the moment you decide. Also does the same for performers: every performer-name
       scraper you pick (Fast), or every installed one (Full), each result kept as
       its own column, URLs followed the same way, reviewed the same way.'
-  version: 0.5.3-f6ef7e5
+  version: 0.5.4-f6ef7e5
   date: '2026-09-20 08:55:38'
   path: FastDiscovery.zip
-  sha256: 37c01aa3f0544893589805a81d5ef5c39a439a474b821d54abfcd6629abfc6e1
+  sha256: abd6ba6795330cfc0f3d4cd8c46c5255095621e27d1a5c443dbecef45a9a627d
   requires: []
 - id: MyMoover
   name: MyMoover
@@ -24,10 +24,10 @@
       and lets you resolve filename conflicts one by one. Physical moves and Stash's
       File.path go through Stash's own moveFiles API, so metadata and Scene association
       survive.
-  version: 0.1.0-ef15a14
-  date: '2026-09-24 13:54:17'
+  version: 0.1.0-95a447b
+  date: '2026-09-24 14:00:24'
   path: MyMoover.zip
-  sha256: 94dfb9b3297c8b9f0f94ebf40c5bb33d775623f1c3b60dd02957d3fe5f5304a0
+  sha256: b9393f7bf691af8add3a7634e180278bb521aa51f7ff6f79edc93cc6606c6850
   requires: []
 - id: MyPerformerBodyCalculator
   name: My Performer Body Calculator
@@ -55,10 +55,10 @@
   name: Performer URL Cleanup
   metadata:
     description: Normalises, deduplicates, and sorts performer URLs
-  version: 1.0.0-b6dfdca
+  version: 1.0.1-b6dfdca
   date: '2026-09-18 17:19:41'
   path: performer-url-cleanup.zip
-  sha256: fedf71885f0cf66b0557d67a7af6d548ca5d459622f785aed70bdb1edd3d25cc
+  sha256: 86bf2455a87fedf45fec171167abb004c504edb5b0c1e716257b8f48269ee98e
   requires: []
 - id: PerformerOrganized
   name: Performer Organized
@@ -80,5 +80,5 @@
   version: 1.0.4-b6dfdca
   date: '2026-09-18 17:19:41'
   path: stashdb-tag-sync.zip
-  sha256: 7719eec86b311057d5d1d07251f759af4e5621bd93cf8f936056a1cba7d0f134
+  sha256: a26f29d691254bc020a0b97f5a2f87c89d42ab3dd0a2edb5a7a8623bf865ca8d
   requires: []

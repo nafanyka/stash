@@ -23,10 +23,16 @@ try:
     import stashapi.log as log
     from stashapi.stashapp import StashInterface
 except ModuleNotFoundError:
-    print(json.dumps({
-        "output": "Error: stashapp-tools not installed. Run: pip install stashapp-tools"
-    }))
-    sys.exit(1)
+    # Missing, and reported by `main()` rather than here.
+    #
+    # Exiting at import time made the whole module unimportable, and the URL rules below
+    # need nothing from stashapi - so their tests could not run, and `pytest` from the
+    # repository root died on *collection*, taking every other suite with it before a
+    # single test had started.
+    log = None
+    StashInterface = None
+
+MISSING_STASHAPI = "Error: stashapp-tools not installed. Run: pip install stashapp-tools"
 
 # Sites that should not have www prefix
 REMOVE_WWW = {
@@ -433,6 +439,12 @@ def process_performers(stash, dry_run=True, write_debug=False):
 
 
 def main():
+    # The same message and the same exit code as before, at the moment the plugin is
+    # actually asked to do something - which is the only moment it matters.
+    if StashInterface is None:
+        print(json.dumps({"output": MISSING_STASHAPI}))
+        sys.exit(1)
+
     """Main entry point."""
     # Read JSON input from Stash
     json_input = json.loads(sys.stdin.read())

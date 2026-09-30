@@ -275,6 +275,7 @@ def build(repo, run, scene, schema_fields=None, client=None, rejected=None):
         "scene": {"id": snapshot["scene_id"], "title": snapshot["display_title"],
                   "filename": snapshot["filename"], "path": snapshot["path"],
                   "screenshot": snapshot["screenshot"],
+                  "organized": snapshot["organized"],
                   "updated_at": snapshot["updated_at"]},
         "columns": columns,
         "sources": [_source_summary(source) for source in sources],

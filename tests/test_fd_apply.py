@@ -40,7 +40,8 @@ class TestNothingHappensByDefault:
         client, run, review = prepared(fd_repo, fd_config, fd_scene, {
             STASHDB: scraped(title="A better title", performers=["Nobody Known"])})
         selection = merge.default_selection(review)
-        result = apply_module.commit(fd_repo, client, run, fd_scene, selection)
+        result = apply_module.commit(fd_repo, client, run, fd_scene, selection,
+                                     organize=False)
         assert result["applied"] is False
         assert client.updates == []
         assert client.created == []
@@ -50,7 +51,8 @@ class TestNothingHappensByDefault:
         client, run, review = prepared(fd_repo, fd_config, fd_scene, {
             STASHDB: scraped(title="New", code="ABC")})
         apply_module.commit(fd_repo, client, run, fd_scene,
-                            {"title": value_id(review, "title", "New")})
+                            {"title": value_id(review, "title", "New")},
+                            organize=False)
         # tag_ids carries the FastDiscovery marker, which every apply adds. `code` was
         # scraped and not selected, so it is not in the write at all.
         assert sorted(client.updates[0]) == ["id", "tag_ids", "title"]
@@ -86,7 +88,7 @@ class TestEntities:
             STASHDB: scraped(performers=["Some New Person"])})
         performers = row(review, "performers")
         apply_module.commit(fd_repo, client, run, fd_scene,
-                            {"performers": performers["default"]})
+                            {"performers": performers["default"]}, organize=False)
         assert client.created == []
 
     def test_a_selected_candidate_is_created_and_linked(self, fd_repo, fd_config,
@@ -214,7 +216,7 @@ class TestTheMarkerTag:
         client, run, review = prepared(fd_repo, fd_config, fd_scene,
                                        {STASHDB: scraped(title="New")})
         result = apply_module.commit(fd_repo, client, run, fd_scene,
-                                     merge.default_selection(review))
+                                     merge.default_selection(review), organize=False)
         assert result["applied"] is False
         assert client.updates == []
         assert client.created == []
@@ -389,7 +391,10 @@ class TestSelectionSurvivesARebuild:
         seeing = FakeStash(
             scene=fd_scene, responses={STASHDB: scraped(tags=["Existing Tag"])},
             entities={"tag": {"Existing Tag": [{"id": "3", "name": "Existing Tag"}]}})
-        result = apply_module.commit(fd_repo, seeing, run, fd_scene, {"tags": ticked})
+        # organize=False keeps this about the tick: with Organize on, an apply that
+        # changes no field still happens, and the marker tag gets created with it.
+        result = apply_module.commit(fd_repo, seeing, run, fd_scene, {"tags": ticked},
+                                     organize=False)
 
         # One tag, the one the library already had, and nothing created.
         assert seeing.created == []
@@ -595,3 +600,99 @@ class TestAliasesOnApply:
         # Ticked by default, because it is a record the library already has - a
         # candidate would not be.
         assert entity["id"] in row(review, "tags")["default"]
+
+
+class TestOrganize:
+    """The tick below the review, and the one field it writes.
+
+    A scene has a real `organized` column, unlike a performer - so this is one more key
+    in the single `sceneUpdate` the apply already makes, not a second call that could
+    fail on its own after the fields had landed.
+    """
+
+    def scene_with(self, fd_scene, organized):
+        return dict(fd_scene, organized=organized)
+
+    def test_it_is_on_by_default(self, fd_repo, fd_config, fd_scene):
+        client, run, review = prepared(fd_repo, fd_config, fd_scene,
+                                       {STASHDB: scraped(title="New")})
+        result = apply_module.commit(fd_repo, client, run, fd_scene,
+                                     {"title": value_id(review, "title", "New")})
+        assert client.updates[0]["organized"] is True
+        assert result["organized"] is True
+
+    def test_it_rides_in_the_same_single_update(self, fd_repo, fd_config, fd_scene):
+        client, run, review = prepared(fd_repo, fd_config, fd_scene,
+                                       {STASHDB: scraped(title="New")})
+        apply_module.commit(fd_repo, client, run, fd_scene,
+                            {"title": value_id(review, "title", "New")})
+        assert len(client.updates) == 1
+        assert sorted(client.updates[0]) == ["id", "organized", "tag_ids", "title"]
+
+    def test_unticking_it_leaves_the_field_out_altogether(self, fd_repo, fd_config,
+                                                          fd_scene):
+        """Not `organized: false`. FastDiscovery is not the thing that decides a scene
+        is *un*organized, and a scene that arrived organized must not leave unorganized.
+        """
+        client, run, review = prepared(fd_repo, fd_config, fd_scene,
+                                       {STASHDB: scraped(title="New")})
+        result = apply_module.commit(fd_repo, client, run, fd_scene,
+                                     {"title": value_id(review, "title", "New")},
+                                     organize=False)
+        assert "organized" not in client.updates[0]
+        assert result["organized"] is None
+
+    def test_a_scene_that_is_already_organized_is_not_written_to_again(
+            self, fd_repo, fd_config, fd_scene):
+        scene = self.scene_with(fd_scene, True)
+        client, run, review = prepared(fd_repo, fd_config, scene,
+                                       {STASHDB: scraped(title="New")})
+        result = apply_module.commit(fd_repo, client, run, scene,
+                                     {"title": value_id(review, "title", "New")})
+        assert "organized" not in client.updates[0]
+        assert result["organized"] is None
+
+    def test_organizing_alone_is_enough_to_be_an_apply(self, fd_repo, fd_config,
+                                                       fd_scene):
+        """Nothing ticked, Organize left on: the reviewer has been through the scene and
+        said so. The run is decided and the scene is marked."""
+        client, run, review = prepared(fd_repo, fd_config, fd_scene,
+                                       {STASHDB: scraped(title="New")})
+        result = apply_module.commit(fd_repo, client, run, fd_scene,
+                                     merge.default_selection(review))
+        assert result["applied"] is True
+        assert client.updates[0]["organized"] is True
+        assert fd_repo.run(run["id"])["status"] == R.APPLIED
+
+    def test_nothing_ticked_and_organize_off_is_still_nothing(self, fd_repo, fd_config,
+                                                              fd_scene):
+        client, run, review = prepared(fd_repo, fd_config, fd_scene,
+                                       {STASHDB: scraped(title="New")})
+        result = apply_module.commit(fd_repo, client, run, fd_scene,
+                                     merge.default_selection(review), organize=False)
+        assert result["applied"] is False
+        assert client.updates == []
+
+    def test_an_already_organized_scene_with_nothing_ticked_is_still_nothing(
+            self, fd_repo, fd_config, fd_scene):
+        # Ticking Organize for a scene that already carries the flag would write
+        # nothing, so it must not turn an empty apply into a real one.
+        scene = self.scene_with(fd_scene, True)
+        client, run, review = prepared(fd_repo, fd_config, scene,
+                                       {STASHDB: scraped(title="New")})
+        result = apply_module.commit(fd_repo, client, run, scene,
+                                     merge.default_selection(review))
+        assert result["applied"] is False
+        assert client.updates == []
+
+    def test_the_review_reports_the_current_state(self, fd_repo, fd_config, fd_scene):
+        # The checkbox has to be able to say "already organized" rather than offering to
+        # do something that would do nothing.
+        _client, _run, review = prepared(fd_repo, fd_config, fd_scene,
+                                         {STASHDB: scraped(title="New")})
+        assert review["scene"]["organized"] is False
+
+        organized = dict(fd_scene, organized=True)
+        _client, _run, review = prepared(fd_repo, fd_config, organized,
+                                         {STASHDB: scraped(title="New")})
+        assert review["scene"]["organized"] is True

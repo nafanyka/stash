@@ -2,11 +2,11 @@
   "_comment": "Written by bin/build.sh. What each component looked like when it was last packaged, so the next build can say what moved. Safe to delete - that just means the next build treats everything as new.",
   "components": {
     "plugins/FastDiscovery": {
-      "fingerprint": "93d2183859dcc2675b4a9eb1ba2117d9237c03012a894c7083b3c82813a2ddb1",
-      "version": "0.5.3"
+      "fingerprint": "4962c072bc822213793b5bca223c8dcbaab43f8fac804df5a3d17aa1c2a49970",
+      "version": "0.5.4"
     },
     "plugins/MyMoover": {
-      "fingerprint": "6a5cdbfc46bb367a7d69be4dc088cef85ddc27bcf54c9379406bd26d71cb7ddd",
+      "fingerprint": "d1b806bd7096444dbd7a0e6aed3ba162fb4b00ce645a5d76784847378924711c",
       "version": "0.1.0"
     },
     "plugins/MyPerformerBodyCalculator": {
@@ -22,11 +22,11 @@
       "version": "1.0.0"
     },
     "plugins/performer-url-cleanup": {
-      "fingerprint": "557342a25870db2e61aac9ba99ade8348636b8db3ba3d31437ee2897a466492b",
-      "version": "1.0.0"
+      "fingerprint": "6725bdfe346e16ad841d77f713a47db43cdb7e29cb9dd5853ef0918c587c2442",
+      "version": "1.0.1"
     },
     "plugins/stashdb-tag-sync": {
-      "fingerprint": "f84eb58fd4e765a50d83a3c8fd70c1afc7cb3cc11f58f5f101d8ce50e2e68e3b",
+      "fingerprint": "586f313435c7847deb3c9be89517dd6acff60d8846256403ac8104e5dd81b426",
       "version": "1.0.4"
     },
     "scrapers/Babepedia": {

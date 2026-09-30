@@ -1,4 +1,14 @@
 """Tests for tag_transfer's core merge/conflict/sync logic."""
+
+import pytest
+
+# These test modules import the plugin's own code, which imports `stashapi`. That is a
+# real dependency of the plugin, not something to work around - but it is not installed
+# for every checkout, and a plain `ModuleNotFoundError` at import time is a *collection*
+# error, which stops pytest before any other suite in the repository has run. Skipping
+# is the difference between "these three did not run" and "nothing ran".
+pytest.importorskip("stashapi")
+
 from models import Tag
 from core.tag_transfer import _merge_tag_data, _has_alias_conflicts, _is_tag_out_of_sync
 

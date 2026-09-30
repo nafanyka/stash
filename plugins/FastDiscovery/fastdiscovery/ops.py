@@ -388,7 +388,11 @@ def op_apply_commit(context, args):
         return apply_module.commit(context.repo, context.client, run, scene,
                                    args.get("selection"), context.schema_fields(),
                                    expected_updated_at=args.get("expected_updated_at"),
-                                   rejected=run.get("rejected_columns"))
+                                   rejected=run.get("rejected_columns"),
+                                   # Organize is on unless the page says otherwise, so
+                                   # an older page - or a caller that does not know
+                                   # about it - still gets the default behaviour.
+                                   organize=args.get("organize", True))
     except apply_module.ApplyError as exc:
         # The run stays reviewable and the payload stays on disk, so Apply can simply
         # be pressed again once whatever went wrong is dealt with (requirement 20).

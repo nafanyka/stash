@@ -476,6 +476,7 @@ def scene_snapshot(scene):
         "display_title": title or basename or ("scene " + str(scene.get("id") or "?")),
         "search_term": title or filename_title,
         "updated_at": scene.get("updated_at"),
+        "organized": bool(scene.get("organized")),
         "urls": scene_urls,
         "screenshot": local_url((scene.get("paths") or {}).get("screenshot")
                                 if isinstance(scene.get("paths"), dict) else None),

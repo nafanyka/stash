@@ -51,18 +51,34 @@ def preview(repo, client, run, scene, selection, schema_fields=None, rejected=No
 
 
 def commit(repo, client, run, scene, selection, schema_fields=None,
-           expected_updated_at=None, rejected=None):
+           expected_updated_at=None, rejected=None, organize=True):
     """Create what was ticked, write the scene once, then drop the payload.
 
     `rejected` has to be the same set the review was shown with: it decides which
     options exist at all, and applying against a different matrix than the one the
     reviewer read would write something they never saw.
+
+    `organize` marks the scene Organized, and is on by default: a scene you have read a
+    review of and applied is a scene you have been through. Unlike the performer side,
+    which has to keep the flag in a custom field, a scene has a real `organized` column
+    - `SceneUpdateInput.organized` - so it rides along in the same single `sceneUpdate`
+    as everything else. Nothing separate to fail on its own.
+
+    It only ever *sets* the flag. Unticking the box leaves `organized` out of the update
+    entirely rather than writing `false`: FastDiscovery is not the thing that decides a
+    scene is unorganized, and a scene that was already organized before the review must
+    not come out of it unorganized.
     """
     review = merge_module.build(repo, run, scene, schema_fields, client, rejected)
     plan = _plan(review, selection)
     if plan["problems"]:
         raise ApplyError("; ".join(plan["problems"]))
-    if not plan["changes"] and not plan["creates"]:
+    # Organizing a scene that is not organized yet is a change like any other; ticking
+    # the box for a scene that already carries the flag is not. So it counts towards
+    # "is there anything to apply" exactly when it would write something.
+    organizing = bool(organize) and not review["scene"]["organized"]
+
+    if not plan["changes"] and not plan["creates"] and not organizing:
         # Nothing was selected that would change anything, so nothing is written - not
         # even the marker. An apply that writes nothing is not an apply: the review
         # stays open and the scene is left exactly as it was.
@@ -71,6 +87,11 @@ def commit(repo, client, run, scene, selection, schema_fields=None,
 
     created, linked = _create_entities(client, plan["creates"])
     values = _scene_update_input(repo, review, plan)
+    if organizing:
+        # A scene has a real `organized` column, so this is one more key in the single
+        # `sceneUpdate` the apply already makes - not a second call that could fail on
+        # its own after the fields landed.
+        values["organized"] = True
     # A scene that has been applied to carries the mark afterwards, so it can be told
     # apart in Stash from one FastDiscovery has never touched.
     marker = _mark_applied(client, scene, values, _has_marker(scene))
@@ -94,11 +115,13 @@ def commit(repo, client, run, scene, selection, schema_fields=None,
 
     repo.add_application(run["id"], run["scene_id"], "APPLIED",
                          [one["field"] for one in plan["changes"]],
-                         {"created": created, "linked": linked, "marker": marker})
+                         {"created": created, "linked": linked, "marker": marker,
+                          "organized": organizing or None})
     repo.set_run_status(run["id"], R.APPLIED)
     repo.purge_run(run["id"])
     return {"applied": True, "changes": plan["changes"], "created": created,
-            "linked": linked, "marker": marker, "fields": sorted(values)}
+            "linked": linked, "marker": marker, "organized": organizing or None,
+            "fields": sorted(values)}
 
 
 def preview_performer(repo, client, run, performer, selection, schema_fields=None,
